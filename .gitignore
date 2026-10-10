@@ -1,0 +1,13 @@
+## .NET / MonoGame / Visual Studio ignore rules
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.apk
+*.aab
+*.keystore
+TestResults/
