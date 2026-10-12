@@ -219,6 +219,130 @@ public class ShapeBatcher : IDisposable
     }
 
     /// <summary>
+    /// 绘制丝滑连续的二阶贝塞尔弹性曲线肢体（模仿 Rounds 中可随外力弯曲的细长竹节/软管手脚）。
+    /// 通过高频分段采样与抗锯齿圆帽无缝拼接，消除任何折角感。
+    /// </summary>
+    /// <param name="spriteBatch">精灵批处理器</param>
+    /// <param name="start">肢体根部坐标 (肩部/髋部)</param>
+    /// <param name="control">受力弯曲控制点坐标</param>
+    /// <param name="end">肢体末端坐标 (手部/脚尖)</param>
+    /// <param name="startThickness">根部核心线宽</param>
+    /// <param name="endThickness">末端核心线宽</param>
+    /// <param name="coreColor">肢体核心颜色</param>
+    /// <param name="outlineColor">外轮廓描边颜色</param>
+    /// <param name="outlineMargin">单侧描边额外宽度</param>
+    public void DrawBezierLimb(
+        SpriteBatch spriteBatch,
+        Vector2 start,
+        Vector2 control,
+        Vector2 end,
+        float startThickness,
+        float endThickness,
+        Color coreColor,
+        Color outlineColor,
+        float outlineMargin = 1.8f)
+    {
+        const int segments = 16;
+        Span<Vector2> pts = stackalloc Vector2[segments + 1];
+        Span<float> coreWidths = stackalloc float[segments + 1];
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float t = i / (float)segments;
+            float u = 1f - t;
+            pts[i] = (u * u) * start + (2f * u * t) * control + (t * t) * end;
+            coreWidths[i] = MathHelper.Lerp(startThickness, endThickness, t);
+        }
+
+        // 1. 底层连续抗锯齿描边
+        if (outlineMargin > 0.01f)
+        {
+            for (int i = 0; i < segments; i++)
+            {
+                float outW = (coreWidths[i] + coreWidths[i + 1]) * 0.5f + outlineMargin * 2f;
+                DrawLine(spriteBatch, pts[i], pts[i + 1], outlineColor, outW);
+                DrawFilledCircle(spriteBatch, pts[i], (coreWidths[i] * 0.5f) + outlineMargin, outlineColor);
+            }
+            DrawFilledCircle(spriteBatch, pts[segments], (coreWidths[segments] * 0.5f) + outlineMargin, outlineColor);
+        }
+
+        // 2. 顶层丝滑弹性竹节核心曲线
+        for (int i = 0; i < segments; i++)
+        {
+            float coreW = (coreWidths[i] + coreWidths[i + 1]) * 0.5f;
+            DrawLine(spriteBatch, pts[i], pts[i + 1], coreColor, coreW);
+            DrawFilledCircle(spriteBatch, pts[i], coreWidths[i] * 0.5f, coreColor);
+        }
+        DrawFilledCircle(spriteBatch, pts[segments], coreWidths[segments] * 0.5f, coreColor);
+    }
+
+    /// <summary>
+    /// 绘制严格恒定弧长的弹性竹节肢体（无论角色高速跳跃或移动，肢体总长度绝对不变，仅随力产生弯曲弧度）。
+    /// </summary>
+    /// <param name="spriteBatch">精灵批处理器</param>
+    /// <param name="rootPos">身体边缘根部锚点</param>
+    /// <param name="fixedLength">严格恒定的肢体总弧长</param>
+    /// <param name="rootAngle">根部初始朝向弧度</param>
+    /// <param name="bendAngle">受力产生的整体弯曲偏转角 (弧度)</param>
+    /// <param name="startThickness">根部粗细</param>
+    /// <param name="endThickness">末端粗细</param>
+    /// <param name="coreColor">肢体黑色核心颜色</param>
+    /// <param name="outlineColor">边缘微描边颜色</param>
+    /// <param name="outlineMargin">描边宽度</param>
+    /// <returns>肢体末端的精确世界坐标</returns>
+    public Vector2 DrawFixedLengthBambooLimb(
+        SpriteBatch spriteBatch,
+        Vector2 rootPos,
+        float fixedLength,
+        float rootAngle,
+        float bendAngle,
+        float startThickness,
+        float endThickness,
+        Color coreColor,
+        Color outlineColor,
+        float outlineMargin = 1.0f)
+    {
+        const int segments = 12;
+        Span<Vector2> pts = stackalloc Vector2[segments + 1];
+        Span<float> coreWidths = stackalloc float[segments + 1];
+
+        pts[0] = rootPos;
+        coreWidths[0] = startThickness;
+        float stepLen = fixedLength / segments;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float t = (i + 0.5f) / segments;
+            // 沿竹节从根部到梢部平滑累加坡度弯曲角，保证每一小段长度恒为 stepLen，总弧长恒为 fixedLength
+            float localAngle = rootAngle + bendAngle * (t * 1.15f);
+            Vector2 dir = new(MathF.Cos(localAngle), MathF.Sin(localAngle));
+            pts[i + 1] = pts[i] + dir * stepLen;
+            coreWidths[i + 1] = MathHelper.Lerp(startThickness, endThickness, (i + 1) / (float)segments);
+        }
+
+        if (outlineMargin > 0.01f)
+        {
+            for (int i = 0; i < segments; i++)
+            {
+                float outW = (coreWidths[i] + coreWidths[i + 1]) * 0.5f + outlineMargin * 2f;
+                DrawLine(spriteBatch, pts[i], pts[i + 1], outlineColor, outW);
+                DrawFilledCircle(spriteBatch, pts[i], (coreWidths[i] * 0.5f) + outlineMargin, outlineColor);
+            }
+            DrawFilledCircle(spriteBatch, pts[segments], (coreWidths[segments] * 0.5f) + outlineMargin, outlineColor);
+        }
+
+        for (int i = 0; i < segments; i++)
+        {
+            float coreW = (coreWidths[i] + coreWidths[i + 1]) * 0.5f;
+            DrawLine(spriteBatch, pts[i], pts[i + 1], coreColor, coreW);
+            DrawFilledCircle(spriteBatch, pts[i], coreWidths[i] * 0.5f, coreColor);
+        }
+        DrawFilledCircle(spriteBatch, pts[segments], coreWidths[segments] * 0.5f, coreColor);
+
+        return pts[segments];
+    }
+
+    /// <summary>
     /// 释放非托管纹理资源。
     /// </summary>
     public void Dispose()

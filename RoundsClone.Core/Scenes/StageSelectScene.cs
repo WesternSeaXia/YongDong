@@ -36,13 +36,14 @@ public class StageSelectScene : IScene
     {
         Vector2 mousePos = _manager.Input.VirtualMousePosition;
         bool click = _manager.Input.IsLeftClickJustPressed();
+        bool mobile = VirtualViewport.IsMobile;
 
-        int cardW = 420;
-        int cardH = 440;
-        int gap = 55;
+        int cardW = mobile ? 540 : 420;
+        int cardH = mobile ? 680 : 440;
+        int gap = mobile ? 45 : 55;
         int totalW = cardW * 3 + gap * 2;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
-        int startY = 300;
+        int startY = mobile ? 210 : 300;
 
         _hoveredCardIndex = -1;
 
@@ -66,16 +67,17 @@ public class StageSelectScene : IScene
     {
         var batcher = _manager.ShapeBatcher;
         var font = _manager.Font;
+        bool mobile = VirtualViewport.IsMobile;
 
         // 顶部简洁标题
-        font.DrawText(spriteBatch, "选择地图", new Vector2(VirtualViewport.VirtualWidth * 0.5f, 140f), Color.White, 2.0f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "选择地图", new Vector2(VirtualViewport.VirtualWidth * 0.5f, mobile ? 105f : 140f), Color.White, mobile ? 2.5f : 2.0f, new Vector2(0.5f, 0.5f));
 
-        int cardW = 420;
-        int cardH = 440;
-        int gap = 55;
+        int cardW = mobile ? 540 : 420;
+        int cardH = mobile ? 680 : 440;
+        int gap = mobile ? 45 : 55;
         int totalW = cardW * 3 + gap * 2;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
-        int startY = 300;
+        int startY = mobile ? 210 : 300;
 
         for (int i = 0; i < _draftedMaps.Count; i++)
         {
@@ -89,16 +91,19 @@ public class StageSelectScene : IScene
             Color border = hover ? ColorPalette.PlayerBlue : ColorPalette.WallOutline;
 
             // 绘制卡牌主体
-            batcher.DrawRoundedRect(spriteBatch, cardRect, 12f, bg);
-            batcher.DrawRectangleOutline(spriteBatch, cardRect, border, hover ? 4f : 2f);
+            batcher.DrawRoundedRect(spriteBatch, cardRect, 14f, bg);
+            batcher.DrawRectangleOutline(spriteBatch, cardRect, border, hover ? 4.5f : 2.5f);
 
             // 顶部地图名条带
-            Rectangle headerRect = new(cardRect.X, cardRect.Y, cardRect.Width, 64);
-            batcher.DrawRoundedRect(spriteBatch, headerRect, 10f, hover ? ColorPalette.PlayerBlue * 0.85f : ColorPalette.WallSolid);
-            font.DrawText(spriteBatch, map.Name, new Vector2(headerRect.Center.X, headerRect.Center.Y), Color.White, 1.05f, new Vector2(0.5f, 0.5f));
+            int headerH = mobile ? 92 : 64;
+            Rectangle headerRect = new(cardRect.X, cardRect.Y, cardRect.Width, headerH);
+            batcher.DrawRoundedRect(spriteBatch, headerRect, 12f, hover ? ColorPalette.PlayerBlue * 0.85f : ColorPalette.WallSolid);
+            font.DrawText(spriteBatch, map.Name, new Vector2(headerRect.Center.X, headerRect.Center.Y), Color.White, mobile ? 1.48f : 1.05f, new Vector2(0.5f, 0.5f));
 
             // 地图缩略图预览
-            Rectangle thumbRect = new(cardRect.X + 28, cardRect.Y + 95, cardRect.Width - 56, 310);
+            int thumbY = cardRect.Y + headerH + 28;
+            int thumbH = cardRect.Height - headerH - 56;
+            Rectangle thumbRect = new(cardRect.X + 28, thumbY, cardRect.Width - 56, thumbH);
             map.DrawThumbnail(batcher, spriteBatch, thumbRect);
         }
     }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -19,6 +19,11 @@ public class VirtualViewport
     /// 虚拟逻辑高度。
     /// </summary>
     public const int VirtualHeight = 1080;
+
+    /// <summary>
+    /// 当前是否运行在移动端（Android / iOS）小尺寸高分屏设备上。
+    /// </summary>
+    public static bool IsMobile => OperatingSystem.IsAndroid() || OperatingSystem.IsIOS();
 
     /// <summary>
     /// 当前屏幕视口矩形（居中渲染区域）。

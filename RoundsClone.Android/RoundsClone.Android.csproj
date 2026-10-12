@@ -6,9 +6,14 @@
     <ApplicationId>com.companyname.RoundsClone.Android</ApplicationId>
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == ''">C:\Users\Summer\AppData\Local\Android\Sdk</AndroidSdkDirectory>
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('C:\Users\Summer\.jdks\temurin-21.0.12.1')">C:\Users\Summer\.jdks\temurin-21.0.12.1</JavaSdkDirectory>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.*" />
     <PackageReference Include="MonoGame.Framework.Android" Version="3.8.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RoundsClone.Core\RoundsClone.Core.csproj" />
   </ItemGroup>
 </Project>

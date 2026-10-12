@@ -16,14 +16,14 @@ public class SpringSquashStretch
     private float _walkBounceOffset = 0f;      // 行走与呼吸附加的周期性果冻Q弹偏移
 
     /// <summary>
-    /// 弹簧刚度系数 (适中的刚度使果冻形变周期清晰可见)。
+    /// 弹簧刚度系数 (适中的刚度使形变干脆有弹性)。
     /// </summary>
-    public float Stiffness { get; set; } = 185f;
+    public float Stiffness { get; set; } = 260f;
 
     /// <summary>
-    /// 阻尼吸收系数 (低阻尼让角色受激后产生 3~4 次明显的果冻回弹震荡)。
+    /// 阻尼吸收系数 (适度阻尼让角色受激后回弹 1~2 次自然收敛，避免过度晃动)。
     /// </summary>
-    public float Damping { get; set; } = 6.2f;
+    public float Damping { get; set; } = 13.5f;
 
     /// <summary>
     /// 获取当前形变轴向与垂直轴向的缩放比 (X: 变形轴, Y: 垂直轴)。
@@ -33,9 +33,9 @@ public class SpringSquashStretch
     {
         get
         {
-            float totalComp = MathHelper.Clamp(_axisCompression + _walkBounceOffset, -0.62f, 0.62f);
+            float totalComp = MathHelper.Clamp(_axisCompression + _walkBounceOffset, -0.34f, 0.34f);
             float axisScale = 1.0f - totalComp;
-            float perpScale = 1.0f + totalComp * 0.92f;
+            float perpScale = 1.0f + totalComp * 0.85f;
             return new Vector2(axisScale, perpScale);
         }
     }
@@ -47,7 +47,7 @@ public class SpringSquashStretch
 
     /// <summary>
     /// 沿指定方向施加拉伸冲量（如跳跃腾空、蹬墙跳、高速冲刺）。
-    /// 角色将沿运动方向显著伸长，并在垂直方向收窄，随后产生Q弹回振。
+    /// 角色将沿运动方向适度伸长，并在垂直方向收窄，随后自然回弹。
     /// </summary>
     /// <param name="direction">拉伸主方向矢量</param>
     /// <param name="intensity">拉伸强度 (0.0 到 0.6)</param>
@@ -57,13 +57,13 @@ public class SpringSquashStretch
         {
             _deformationAngle = MathF.Atan2(direction.Y, direction.X);
         }
-        _axisCompression = MathHelper.Clamp(_axisCompression - intensity * 0.42f, -0.60f, 0.60f);
-        _compressionVelocity -= intensity * 19f;
+        _axisCompression = MathHelper.Clamp(_axisCompression - intensity * 0.20f, -0.34f, 0.34f);
+        _compressionVelocity -= intensity * 10.5f;
     }
 
     /// <summary>
     /// 沿指定方向施加压扁冲量（如着陆撞地、枪械后坐反冲、受击冲击）。
-    /// 角色将沿撞击方向显著压扁，并在垂直方向膨胀，随后产生Q弹回振。
+    /// 角色将沿撞击方向适度压扁，并在垂直方向膨胀，随后自然回弹。
     /// </summary>
     /// <param name="direction">受力法线或后坐方向矢量</param>
     /// <param name="intensity">压扁强度 (0.0 到 0.6)</param>
@@ -73,8 +73,8 @@ public class SpringSquashStretch
         {
             _deformationAngle = MathF.Atan2(direction.Y, direction.X);
         }
-        _axisCompression = MathHelper.Clamp(_axisCompression + intensity * 0.42f, -0.60f, 0.60f);
-        _compressionVelocity += intensity * 19f;
+        _axisCompression = MathHelper.Clamp(_axisCompression + intensity * 0.20f, -0.34f, 0.34f);
+        _compressionVelocity += intensity * 10.5f;
     }
 
     /// <summary>

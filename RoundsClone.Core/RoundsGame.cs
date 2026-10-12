@@ -39,14 +39,24 @@ public class RoundsGame : Game
         _autoTestFlow = autoTestFlow;
         _graphics = new GraphicsDeviceManager(this)
         {
-            PreferredBackBufferWidth = 1280,
-            PreferredBackBufferHeight = 720,
-            SynchronizeWithVerticalRetrace = true
+            SynchronizeWithVerticalRetrace = true,
+            IsFullScreen = OperatingSystem.IsAndroid(),
+            SupportedOrientations = DisplayOrientation.LandscapeLeft | DisplayOrientation.LandscapeRight
         };
 
-        Window.AllowUserResizing = true;
-        Window.Title = "ROUNDS Arena - Vector Force Edition (.NET 10)";
-        IsMouseVisible = true;
+        if (!OperatingSystem.IsAndroid())
+        {
+            _graphics.PreferredBackBufferWidth = 1280;
+            _graphics.PreferredBackBufferHeight = 720;
+            Window.AllowUserResizing = true;
+            Window.Title = "ROUNDS Arena - Vector Force Edition (.NET 10)";
+            IsMouseVisible = true;
+        }
+        else
+        {
+            _graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
+            _graphics.PreferredBackBufferHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+        }
     }
 
     protected override void Initialize()

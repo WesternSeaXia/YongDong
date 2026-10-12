@@ -75,6 +75,9 @@ public class CollisionWorld
 
                 if (!a.IsEnabled || !b.IsEnabled) continue;
 
+                // 子弹与子弹之间互不碰撞、互不抵消
+                if (a.IsProjectile && b.IsProjectile) continue;
+
                 // 两个静态物体之间不解算
                 if (a.Body.IsStatic && b.Body.IsStatic) continue;
 

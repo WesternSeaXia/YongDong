@@ -28,12 +28,22 @@ public class MainMenuScene : IScene
         _exitGameAction = exitGameAction;
 
         int cx = VirtualViewport.VirtualWidth / 2;
-        int btnW = 360;
-        int btnH = 65;
-
-        _btnStart = new Rectangle(cx - btnW / 2, 520, btnW, btnH);
-        _btnToggleControls = new Rectangle(cx - btnW / 2, 615, btnW, btnH);
-        _btnExit = new Rectangle(cx - btnW / 2, 710, btnW, btnH);
+        if (VirtualViewport.IsMobile)
+        {
+            int btnW = 580;
+            int btnH = 106;
+            _btnStart = new Rectangle(cx - btnW / 2, 470, btnW, btnH);
+            _btnToggleControls = new Rectangle(cx - btnW / 2, 605, btnW, btnH);
+            _btnExit = new Rectangle(cx - btnW / 2, 740, btnW, btnH);
+        }
+        else
+        {
+            int btnW = 360;
+            int btnH = 65;
+            _btnStart = new Rectangle(cx - btnW / 2, 520, btnW, btnH);
+            _btnToggleControls = new Rectangle(cx - btnW / 2, 615, btnW, btnH);
+            _btnExit = new Rectangle(cx - btnW / 2, 710, btnW, btnH);
+        }
     }
 
     public void Enter()
@@ -92,15 +102,16 @@ public class MainMenuScene : IScene
             batcher.DrawLine(spriteBatch, new Vector2(0, y), new Vector2(VirtualViewport.VirtualWidth, y), ColorPalette.GridLine, 1f);
         }
 
-        Vector2 centerRing = new(VirtualViewport.VirtualWidth * 0.5f, 300f);
+        float ringY = VirtualViewport.IsMobile ? 250f : 300f;
+        Vector2 centerRing = new(VirtualViewport.VirtualWidth * 0.5f, ringY);
         float pulse = MathF.Sin(_time * 1.5f) * 15f;
-        batcher.DrawCircleOutline(spriteBatch, centerRing, 170f + pulse, ColorPalette.PlayerBlue * 0.25f, 3f);
-        batcher.DrawCircleOutline(spriteBatch, centerRing, 220f - pulse, ColorPalette.PlayerRed * 0.2f, 2f);
+        batcher.DrawCircleOutline(spriteBatch, centerRing, (VirtualViewport.IsMobile ? 195f : 170f) + pulse, ColorPalette.PlayerBlue * 0.25f, 3f);
+        batcher.DrawCircleOutline(spriteBatch, centerRing, (VirtualViewport.IsMobile ? 250f : 220f) - pulse, ColorPalette.PlayerRed * 0.2f, 2f);
 
         _manager.Particles.Draw(batcher, spriteBatch);
 
         // 2. 简洁主标题
-        font.DrawText(spriteBatch, "ROUNDS", new Vector2(VirtualViewport.VirtualWidth * 0.5f, 300f), Color.White, 2.6f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "ROUNDS", centerRing, Color.White, VirtualViewport.IsMobile ? 3.4f : 2.6f, new Vector2(0.5f, 0.5f));
 
         // 3. 按钮列表
         DrawButton(batcher, spriteBatch, font, _btnStart, "开始游戏", mousePos, ColorPalette.PlayerBlue);
@@ -115,15 +126,16 @@ public class MainMenuScene : IScene
         Color bg = hover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard;
         Color border = hover ? accent : ColorPalette.WallOutline;
 
-        batcher.DrawRoundedRect(spriteBatch, rect, 8f, bg);
-        batcher.DrawRectangleOutline(spriteBatch, rect, border, hover ? 3f : 2f);
+        batcher.DrawRoundedRect(spriteBatch, rect, VirtualViewport.IsMobile ? 12f : 8f, bg);
+        batcher.DrawRectangleOutline(spriteBatch, rect, border, hover ? 3.5f : 2.5f);
 
         if (hover)
         {
-            batcher.DrawRectangle(spriteBatch, new Rectangle(rect.X, rect.Y, 6, rect.Height), accent);
+            batcher.DrawRectangle(spriteBatch, new Rectangle(rect.X, rect.Y, 8, rect.Height), accent);
         }
 
-        font.DrawText(spriteBatch, text, new Vector2(rect.Center.X, rect.Center.Y), hover ? Color.White : ColorPalette.TextWhite, 0.85f, new Vector2(0.5f, 0.5f));
+        float textScale = VirtualViewport.IsMobile ? 1.38f : 0.85f;
+        font.DrawText(spriteBatch, text, new Vector2(rect.Center.X, rect.Center.Y), hover ? Color.White : ColorPalette.TextWhite, textScale, new Vector2(0.5f, 0.5f));
     }
 
     public void Exit() { }

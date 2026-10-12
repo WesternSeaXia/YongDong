@@ -11,7 +11,7 @@ namespace RoundsClone.Core.Scenes;
 
 /// <summary>
 /// 角色配置与初始副武器选择场景。
-/// 提供斗士外观主题色挑选、初始副武器（格挡 / 冲刺）装配，以及实时 Q 弹形变手脚联动动态预览。
+/// 提供斗士外观主题色挑选、眼神表情定制（可爱/猥琐/搞怪）、初始副武器（格挡/冲刺）装配，以及实时线条手脚 IK 动态预览。
 /// </summary>
 public class CharacterSelectScene : IScene
 {
@@ -27,6 +27,18 @@ public class CharacterSelectScene : IScene
         ("太阳耀金", ColorPalette.PlayerYellow)
     };
     private int _selectedColorIndex = 0;
+
+    // 候选眼神表情配置（含经典、可爱、猥琐、搞怪风格）
+    private readonly (string Name, EyeStyle Style)[] _eyeOptions =
+    {
+        ("经典斗士", EyeStyle.Classic),
+        ("水汪萌眼", EyeStyle.Cute),
+        ("猥琐眯眼", EyeStyle.Sneaky),
+        ("智慧斗鸡", EyeStyle.Derp),
+        ("腹黑笑眼", EyeStyle.Happy),
+        ("狂暴死鱼", EyeStyle.Crazy)
+    };
+    private int _selectedEyeIndex = 0;
 
     // 候选初始副武器
     private readonly (string Name, string Desc, IconType Icon, Func<ISubWeapon> Factory)[] _subWeaponOptions =
@@ -49,16 +61,30 @@ public class CharacterSelectScene : IScene
         _manager = manager;
         _exitAction = exitAction;
 
-        _previewActor = new Actor(new Vector2(VirtualViewport.VirtualWidth * 0.5f, 380f), ColorPalette.PlayerBlue);
+        float actorY = VirtualViewport.IsMobile ? 275f : 325f;
+        _previewActor = new Actor(new Vector2(VirtualViewport.VirtualWidth * 0.5f, actorY), ColorPalette.PlayerBlue)
+        {
+            MaxHealth = VirtualViewport.IsMobile ? 220f : 165f
+        };
+        _previewActor.RecalculateHealthScaling();
 
         int cx = VirtualViewport.VirtualWidth / 2;
-        _btnConfirm = new Rectangle(cx - 200, 930, 400, 70);
-        _btnBack = new Rectangle(80, 60, 160, 50);
+        if (VirtualViewport.IsMobile)
+        {
+            _btnConfirm = new Rectangle(cx - 290, 900, 580, 108);
+            _btnBack = new Rectangle(50, 38, 220, 78);
+        }
+        else
+        {
+            _btnConfirm = new Rectangle(cx - 200, 930, 400, 70);
+            _btnBack = new Rectangle(80, 60, 160, 50);
+        }
     }
 
     public void Enter()
     {
         _previewActor.ThemeColor = _colorOptions[_selectedColorIndex].Color;
+        _previewActor.EyeStyle = _eyeOptions[_selectedEyeIndex].Style;
         _previewActor.SubWeapon = _subWeaponOptions[_selectedSubWeaponIndex].Factory();
     }
 
@@ -68,59 +94,90 @@ public class CharacterSelectScene : IScene
         Vector2 mousePos = _manager.Input.VirtualMousePosition;
         bool click = _manager.Input.IsLeftClickJustPressed();
 
-        // 模拟瞄准朝向鼠标
+        // 模拟瞄准朝向鼠标与左右轻快踱步，展示线条手脚步态与眼神互动
         Vector2 aim = MathHelper2D.SafeNormalize(mousePos - _previewActor.Body.Position);
         var mockInput = new ControlInputState
         {
             AimVector = aim,
-            MoveVector = new Vector2(MathF.Sin(_previewTimer * 2f) * 0.4f, 0f)
+            MoveVector = new Vector2(MathF.Sin(_previewTimer * 2.2f) * 0.55f, 0f)
         };
         _previewActor.Update(dt, mockInput, null!, _manager.Particles, _manager.Shake, _ => { });
 
-        // 色彩点击切换
-        float colorStartX = VirtualViewport.VirtualWidth * 0.5f - 240f;
+        bool mobile = VirtualViewport.IsMobile;
+
+        // 1. 色彩点击切换
+        int colorW = mobile ? 190 : 100;
+        int colorH = mobile ? 72 : 46;
+        int colorStep = mobile ? 225 : 130;
+        int colorY = mobile ? 430 : 500;
+        float colorStartX = VirtualViewport.VirtualWidth * 0.5f - ((_colorOptions.Length - 1) * colorStep + colorW) * 0.5f;
+
         for (int i = 0; i < _colorOptions.Length; i++)
         {
-            Rectangle colorRect = new((int)(colorStartX + i * 130), 600, 100, 50);
+            Rectangle colorRect = new((int)(colorStartX + i * colorStep), colorY, colorW, colorH);
             if (colorRect.Contains(mousePos) && click)
             {
                 _selectedColorIndex = i;
                 _previewActor.ThemeColor = _colorOptions[i].Color;
+                _previewActor.Squash.ApplySquash(Vector2.UnitY, 0.22f);
             }
         }
 
-        // 副武器点击切换
-        int cardW = 340;
-        int cardH = 130;
-        int gap = 50;
+        // 2. 眼神配置点击切换
+        int eyeBtnW = mobile ? 245 : 136;
+        int eyeBtnH = mobile ? 84 : 54;
+        int eyeGap = mobile ? 22 : 18;
+        int eyeY = mobile ? 545 : 595;
+        int totalEyeW = _eyeOptions.Length * eyeBtnW + (_eyeOptions.Length - 1) * eyeGap;
+        int eyeStartX = (VirtualViewport.VirtualWidth - totalEyeW) / 2;
+
+        for (int i = 0; i < _eyeOptions.Length; i++)
+        {
+            Rectangle eyeRect = new(eyeStartX + i * (eyeBtnW + eyeGap), eyeY, eyeBtnW, eyeBtnH);
+            if (eyeRect.Contains(mousePos) && click)
+            {
+                _selectedEyeIndex = i;
+                _previewActor.EyeStyle = _eyeOptions[i].Style;
+                _previewActor.Squash.ApplyStretch(Vector2.UnitY, 0.25f);
+            }
+        }
+
+        // 3. 副武器点击切换
+        int cardW = mobile ? 540 : 340;
+        int cardH = mobile ? 175 : 125;
+        int gap = mobile ? 60 : 50;
+        int cardY = mobile ? 675 : 710;
         int totalW = cardW * 2 + gap;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
 
         for (int i = 0; i < _subWeaponOptions.Length; i++)
         {
-            Rectangle weaponCard = new(startX + i * (cardW + gap), 720, cardW, cardH);
+            Rectangle weaponCard = new(startX + i * (cardW + gap), cardY, cardW, cardH);
             if (weaponCard.Contains(mousePos) && click)
             {
                 _selectedSubWeaponIndex = i;
                 _previewActor.SubWeapon = _subWeaponOptions[i].Factory();
+                _previewActor.Squash.ApplySquash(Vector2.UnitY, 0.20f);
             }
         }
 
-        // 确认配置并进入关卡三选一
+        // 4. 确认配置并进入关卡三选一
         if (_btnConfirm.Contains(mousePos) && click)
         {
             _manager.PlayerColor = _colorOptions[_selectedColorIndex].Color;
+            _manager.PlayerEyeStyle = _eyeOptions[_selectedEyeIndex].Style;
             _manager.PlayerSubWeaponFactory = _subWeaponOptions[_selectedSubWeaponIndex].Factory;
 
-            // AI 使用互补配置
+            // AI 使用互补色彩、副武器以及搞怪/猥琐眼神
             _manager.AiColor = _selectedColorIndex == 1 ? ColorPalette.PlayerBlue : ColorPalette.PlayerRed;
+            _manager.AiEyeStyle = _eyeOptions[(_selectedEyeIndex + 2) % _eyeOptions.Length].Style;
             _manager.AiSubWeaponFactory = _selectedSubWeaponIndex == 0 ? () => new DashSubWeapon() : () => new BlockSubWeapon();
 
             _manager.ResetMatch();
             _manager.ChangeScene(new StageSelectScene(_manager, _exitAction));
         }
 
-        // 返回主菜单
+        // 5. 返回主菜单
         if (_btnBack.Contains(mousePos) && click)
         {
             _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
@@ -132,63 +189,97 @@ public class CharacterSelectScene : IScene
         var batcher = _manager.ShapeBatcher;
         var font = _manager.Font;
         Vector2 mousePos = _manager.Input.VirtualMousePosition;
+        bool mobile = VirtualViewport.IsMobile;
 
         // 顶部标题
-        font.DrawText(spriteBatch, "角色选择", new Vector2(VirtualViewport.VirtualWidth * 0.5f, 110f), Color.White, 1.8f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "角色选择", new Vector2(VirtualViewport.VirtualWidth * 0.5f, mobile ? 75f : 95f), Color.White, mobile ? 2.3f : 1.8f, new Vector2(0.5f, 0.5f));
 
-        // 角色预览基座环
+        // 角色预览基座平台与光环
         Vector2 pPos = _previewActor.Body.Position;
-        batcher.DrawCircleOutline(spriteBatch, pPos + new Vector2(0, 45f), 70f, _previewActor.ThemeColor * 0.4f, 3f);
+        float groundY = pPos.Y + _previewActor.Radius;
+        batcher.DrawLine(spriteBatch, new Vector2(pPos.X - 105f, groundY + 2f), new Vector2(pPos.X + 105f, groundY + 2f), _previewActor.ThemeColor * 0.55f, 4f);
+        batcher.DrawCircleOutline(spriteBatch, pPos, mobile ? 95f : 78f, _previewActor.ThemeColor * 0.28f, 2.5f);
         _previewActor.Draw(batcher, spriteBatch);
 
         // 1. 色彩选择色块
-        float colorStartX = VirtualViewport.VirtualWidth * 0.5f - 240f;
+        int colorW = mobile ? 190 : 100;
+        int colorH = mobile ? 72 : 46;
+        int colorStep = mobile ? 225 : 130;
+        int colorY = mobile ? 430 : 500;
+        float colorStartX = VirtualViewport.VirtualWidth * 0.5f - ((_colorOptions.Length - 1) * colorStep + colorW) * 0.5f;
+
         for (int i = 0; i < _colorOptions.Length; i++)
         {
-            Rectangle colorRect = new((int)(colorStartX + i * 130), 600, 100, 50);
+            Rectangle colorRect = new((int)(colorStartX + i * colorStep), colorY, colorW, colorH);
             bool selected = i == _selectedColorIndex;
             bool hover = colorRect.Contains(mousePos);
 
-            batcher.DrawRoundedRect(spriteBatch, colorRect, 6f, _colorOptions[i].Color * (selected ? 0.9f : 0.4f));
-            batcher.DrawRectangleOutline(spriteBatch, colorRect, selected ? Color.White : (hover ? ColorPalette.TextWhite : ColorPalette.WallOutline), selected ? 3f : 1.5f);
+            batcher.DrawRoundedRect(spriteBatch, colorRect, 8f, _colorOptions[i].Color * (selected ? 0.92f : 0.42f));
+            batcher.DrawRectangleOutline(spriteBatch, colorRect, selected ? Color.White : (hover ? ColorPalette.TextWhite : ColorPalette.WallOutline), selected ? 3.5f : 1.8f);
+            if (mobile)
+            {
+                font.DrawText(spriteBatch, _colorOptions[i].Name, new Vector2(colorRect.Center.X, colorRect.Center.Y), Color.White, 1.0f, new Vector2(0.5f, 0.5f));
+            }
         }
 
-        // 2. 副武器选择卡片
-        int cardW = 340;
-        int cardH = 130;
-        int gap = 50;
+        // 2. 眼神配置选择按钮组
+        int eyeBtnW = mobile ? 245 : 136;
+        int eyeBtnH = mobile ? 84 : 54;
+        int eyeGap = mobile ? 22 : 18;
+        int eyeY = mobile ? 545 : 595;
+        int totalEyeW = _eyeOptions.Length * eyeBtnW + (_eyeOptions.Length - 1) * eyeGap;
+        int eyeStartX = (VirtualViewport.VirtualWidth - totalEyeW) / 2;
+
+        for (int i = 0; i < _eyeOptions.Length; i++)
+        {
+            Rectangle eyeRect = new(eyeStartX + i * (eyeBtnW + eyeGap), eyeY, eyeBtnW, eyeBtnH);
+            bool selected = i == _selectedEyeIndex;
+            bool hover = eyeRect.Contains(mousePos);
+
+            Color bg = selected ? ColorPalette.ButtonActive : (hover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard);
+            Color border = selected ? _previewActor.ThemeColor : ColorPalette.WallOutline;
+
+            batcher.DrawRoundedRect(spriteBatch, eyeRect, 10f, bg);
+            batcher.DrawRectangleOutline(spriteBatch, eyeRect, border, selected ? 3.5f : 2f);
+            font.DrawText(spriteBatch, _eyeOptions[i].Name, new Vector2(eyeRect.Center.X, eyeRect.Center.Y), selected ? Color.White : ColorPalette.TextWhite, mobile ? 1.18f : 0.82f, new Vector2(0.5f, 0.5f));
+        }
+
+        // 3. 副武器选择卡片
+        int cardW = mobile ? 540 : 340;
+        int cardH = mobile ? 175 : 125;
+        int gap = mobile ? 60 : 50;
+        int cardY = mobile ? 675 : 710;
         int totalW = cardW * 2 + gap;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
 
         for (int i = 0; i < _subWeaponOptions.Length; i++)
         {
-            Rectangle weaponCard = new(startX + i * (cardW + gap), 720, cardW, cardH);
+            Rectangle weaponCard = new(startX + i * (cardW + gap), cardY, cardW, cardH);
             bool selected = i == _selectedSubWeaponIndex;
             bool hover = weaponCard.Contains(mousePos);
 
             Color bg = selected ? ColorPalette.ButtonActive : (hover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard);
             Color border = selected ? ColorPalette.PlayerBlue : ColorPalette.WallOutline;
 
-            batcher.DrawRoundedRect(spriteBatch, weaponCard, 10f, bg);
-            batcher.DrawRectangleOutline(spriteBatch, weaponCard, border, selected ? 3.5f : 2f);
+            batcher.DrawRoundedRect(spriteBatch, weaponCard, 12f, bg);
+            batcher.DrawRectangleOutline(spriteBatch, weaponCard, border, selected ? 4f : 2f);
 
-            // 绘制副武器图标与名称
-            Vector2 iconPos = new(weaponCard.X + 75, weaponCard.Center.Y);
-            ProceduralIcons.DrawIcon(batcher, spriteBatch, _subWeaponOptions[i].Icon, iconPos, 55f, selected ? Color.White : ColorPalette.PlayerBlue);
+            Vector2 iconPos = new(weaponCard.X + (mobile ? 105 : 75), weaponCard.Center.Y);
+            ProceduralIcons.DrawIcon(batcher, spriteBatch, _subWeaponOptions[i].Icon, iconPos, mobile ? 72f : 52f, selected ? Color.White : ColorPalette.PlayerBlue);
 
-            font.DrawText(spriteBatch, _subWeaponOptions[i].Name, new Vector2(weaponCard.X + 135, weaponCard.Center.Y), selected ? Color.White : ColorPalette.TextWhite, 1.1f, new Vector2(0f, 0.5f));
+            font.DrawText(spriteBatch, _subWeaponOptions[i].Name, new Vector2(weaponCard.X + (mobile ? 185 : 135), weaponCard.Center.Y), selected ? Color.White : ColorPalette.TextWhite, mobile ? 1.5f : 1.1f, new Vector2(0f, 0.5f));
         }
 
-        // 3. 底部确认与返回按钮
+        // 4. 底部确认与返回按钮
         bool confirmHover = _btnConfirm.Contains(mousePos);
-        batcher.DrawRoundedRect(spriteBatch, _btnConfirm, 10f, confirmHover ? ColorPalette.PlayerBlue : ColorPalette.ButtonHover);
-        batcher.DrawRectangleOutline(spriteBatch, _btnConfirm, Color.White, confirmHover ? 3.5f : 2f);
-        font.DrawText(spriteBatch, "开始战斗", new Vector2(_btnConfirm.Center.X, _btnConfirm.Center.Y), Color.White, 1.1f, new Vector2(0.5f, 0.5f));
+        batcher.DrawRoundedRect(spriteBatch, _btnConfirm, 12f, confirmHover ? ColorPalette.PlayerBlue : ColorPalette.ButtonHover);
+        batcher.DrawRectangleOutline(spriteBatch, _btnConfirm, Color.White, confirmHover ? 4f : 2.5f);
+        font.DrawText(spriteBatch, "开始战斗", new Vector2(_btnConfirm.Center.X, _btnConfirm.Center.Y), Color.White, mobile ? 1.55f : 1.1f, new Vector2(0.5f, 0.5f));
 
         bool backHover = _btnBack.Contains(mousePos);
-        batcher.DrawRoundedRect(spriteBatch, _btnBack, 6f, backHover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard);
-        batcher.DrawRectangleOutline(spriteBatch, _btnBack, ColorPalette.WallOutline, 1.5f);
-        font.DrawText(spriteBatch, "返回", new Vector2(_btnBack.Center.X, _btnBack.Center.Y), ColorPalette.TextWhite, 0.8f, new Vector2(0.5f, 0.5f));
+        batcher.DrawRoundedRect(spriteBatch, _btnBack, 8f, backHover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard);
+        batcher.DrawRectangleOutline(spriteBatch, _btnBack, ColorPalette.WallOutline, 2f);
+        font.DrawText(spriteBatch, "返回", new Vector2(_btnBack.Center.X, _btnBack.Center.Y), ColorPalette.TextWhite, mobile ? 1.2f : 0.8f, new Vector2(0.5f, 0.5f));
     }
 
     public void Exit() { }

@@ -37,13 +37,14 @@ public class CardSelectScene : IScene
     {
         Vector2 mousePos = _manager.Input.VirtualMousePosition;
         bool click = _manager.Input.IsLeftClickJustPressed();
+        bool mobile = VirtualViewport.IsMobile;
 
-        int cardW = 400;
-        int cardH = 540;
-        int gap = 60;
+        int cardW = mobile ? 540 : 400;
+        int cardH = mobile ? 720 : 540;
+        int gap = mobile ? 45 : 60;
         int totalW = cardW * 3 + gap * 2;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
-        int startY = 260;
+        int startY = mobile ? 195 : 260;
 
         _hoveredCardIndex = -1;
 
@@ -78,16 +79,17 @@ public class CardSelectScene : IScene
     {
         var batcher = _manager.ShapeBatcher;
         var font = _manager.Font;
+        bool mobile = VirtualViewport.IsMobile;
 
         // 顶部简洁标题
-        font.DrawText(spriteBatch, "选择技能", new Vector2(VirtualViewport.VirtualWidth * 0.5f, 120f), Color.White, 2.0f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "选择技能", new Vector2(VirtualViewport.VirtualWidth * 0.5f, mobile ? 95f : 120f), Color.White, mobile ? 2.5f : 2.0f, new Vector2(0.5f, 0.5f));
 
-        int cardW = 400;
-        int cardH = 540;
-        int gap = 60;
+        int cardW = mobile ? 540 : 400;
+        int cardH = mobile ? 720 : 540;
+        int gap = mobile ? 45 : 60;
         int totalW = cardW * 3 + gap * 2;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
-        int startY = 260;
+        int startY = mobile ? 195 : 260;
 
         for (int i = 0; i < _draftedCards.Count; i++)
         {
@@ -100,22 +102,24 @@ public class CardSelectScene : IScene
             Color bg = hover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard;
 
             // 1. 卡牌底板与边框
-            batcher.DrawRoundedRect(spriteBatch, cardRect, 14f, bg);
-            batcher.DrawRectangleOutline(spriteBatch, cardRect, hover ? tierColor : ColorPalette.WallOutline, hover ? 4f : 2f);
+            batcher.DrawRoundedRect(spriteBatch, cardRect, 16f, bg);
+            batcher.DrawRectangleOutline(spriteBatch, cardRect, hover ? tierColor : ColorPalette.WallOutline, hover ? 4.5f : 2.5f);
 
             // 2. 卡牌名称横幅
-            Rectangle bannerRect = new(cardRect.X, cardRect.Y, cardRect.Width, 68);
-            batcher.DrawRoundedRect(spriteBatch, bannerRect, 12f, tierColor * 0.85f);
-            font.DrawText(spriteBatch, card.Name, new Vector2(bannerRect.Center.X, bannerRect.Center.Y), Color.White, 1.15f, new Vector2(0.5f, 0.5f));
+            int bannerH = mobile ? 96 : 68;
+            Rectangle bannerRect = new(cardRect.X, cardRect.Y, cardRect.Width, bannerH);
+            batcher.DrawRoundedRect(spriteBatch, bannerRect, 14f, tierColor * 0.85f);
+            font.DrawText(spriteBatch, card.Name, new Vector2(bannerRect.Center.X, bannerRect.Center.Y), Color.White, mobile ? 1.55f : 1.15f, new Vector2(0.5f, 0.5f));
 
             // 3. 矢量图标徽章圆环
-            Vector2 iconCenter = new(cardRect.Center.X, cardRect.Y + 190);
-            batcher.DrawFilledCircle(spriteBatch, iconCenter, 62f, Color.Black * 0.45f);
-            batcher.DrawCircleOutline(spriteBatch, iconCenter, 62f, tierColor, 3f);
-            ProceduralIcons.DrawIcon(batcher, spriteBatch, card.Icon, iconCenter, 75f, tierColor);
+            Vector2 iconCenter = new(cardRect.Center.X, cardRect.Y + (mobile ? 265 : 190));
+            float ringR = mobile ? 88f : 62f;
+            batcher.DrawFilledCircle(spriteBatch, iconCenter, ringR, Color.Black * 0.45f);
+            batcher.DrawCircleOutline(spriteBatch, iconCenter, ringR, tierColor, 3.5f);
+            ProceduralIcons.DrawIcon(batcher, spriteBatch, card.Icon, iconCenter, mobile ? 105f : 75f, tierColor);
 
             // 4. 简洁数值属性
-            font.DrawText(spriteBatch, card.Description, new Vector2(cardRect.Center.X, cardRect.Y + 350), ColorPalette.TextWhite, 0.95f, new Vector2(0.5f, 0f));
+            font.DrawText(spriteBatch, card.Description, new Vector2(cardRect.Center.X, cardRect.Y + (mobile ? 460 : 350)), ColorPalette.TextWhite, mobile ? 1.42f : 0.95f, new Vector2(0.5f, 0f));
         }
     }
 

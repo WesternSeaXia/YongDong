@@ -57,6 +57,9 @@ public class SceneManager
     public Color PlayerColor { get; set; } = ColorPalette.PlayerBlue;
     public Color AiColor { get; set; } = ColorPalette.PlayerRed;
 
+    public EyeStyle PlayerEyeStyle { get; set; } = EyeStyle.Classic;
+    public EyeStyle AiEyeStyle { get; set; } = EyeStyle.Sneaky;
+
     public Func<ISubWeapon> PlayerSubWeaponFactory { get; set; } = () => new BlockSubWeapon();
     public Func<ISubWeapon> AiSubWeaponFactory { get; set; } = () => new DashSubWeapon();
 

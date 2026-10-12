@@ -42,6 +42,11 @@ public abstract class Collider
     /// </summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// 是否为子弹碰撞体（子弹与子弹之间互不碰撞抵消）。
+    /// </summary>
+    public bool IsProjectile { get; set; } = false;
+
     protected Collider(RigidBody2D body)
     {
         Body = body;

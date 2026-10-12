@@ -112,7 +112,8 @@ public class Projectile
 
         Collider = new CircleCollider(Body, Radius)
         {
-            BouncinessOverride = 0.95f
+            BouncinessOverride = 0.95f,
+            IsProjectile = true
         };
     }
 

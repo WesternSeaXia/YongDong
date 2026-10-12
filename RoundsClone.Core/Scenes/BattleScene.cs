@@ -52,12 +52,14 @@ public class BattleScene : IScene
         _player = new Actor(_map.PlayerSpawn, _manager.PlayerColor, isAi: false)
         {
             Name = "玩家",
+            EyeStyle = _manager.PlayerEyeStyle,
             SubWeapon = _manager.PlayerSubWeaponFactory()
         };
 
         _ai = new Actor(_map.AiSpawn, _manager.AiColor, isAi: true)
         {
             Name = "AI 对手",
+            EyeStyle = _manager.AiEyeStyle,
             SubWeapon = _manager.AiSubWeaponFactory()
         };
     }
@@ -317,8 +319,8 @@ public class BattleScene : IScene
         // 5. 渲染顶部对战 HUD
         DrawBattleHUD(batcher, spriteBatch, font);
 
-        // 6. 渲染触控虚拟摇杆
-        _manager.Input.DrawTouchControls(batcher, spriteBatch, font);
+        // 6. 渲染触控虚拟摇杆（传入 _player 以实时渲染副武器技能按钮冷却）
+        _manager.Input.DrawTouchControls(batcher, spriteBatch, font, _player);
 
         // 7. 回合结算大字横幅
         if (_roundEnded)
@@ -334,66 +336,85 @@ public class BattleScene : IScene
 
     private void DrawBattleHUD(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font)
     {
+        bool mobile = VirtualViewport.IsMobile;
+        int topBarH = mobile ? 96 : 82;
+
         // 顶部 HUD 栏背景
-        Rectangle topBar = new(0, 0, VirtualViewport.VirtualWidth, 82);
+        Rectangle topBar = new(0, 0, VirtualViewport.VirtualWidth, topBarH);
         batcher.DrawRectangle(spriteBatch, topBar, ColorPalette.BackgroundDark * 0.85f);
-        batcher.DrawLine(spriteBatch, new Vector2(0, 82), new Vector2(VirtualViewport.VirtualWidth, 82), ColorPalette.WallOutline, 2f);
+        batcher.DrawLine(spriteBatch, new Vector2(0, topBarH), new Vector2(VirtualViewport.VirtualWidth, topBarH), ColorPalette.WallOutline, 2f);
+
+        int barW = mobile ? 520 : 420;
+        int barH = mobile ? 36 : 26;
+        int barY = mobile ? 18 : 22;
+        float hpFontScale = mobile ? 0.95f : 0.68f;
 
         // --- 玩家血条 (左) ---
         float pMaxHp = _player.MaxHealth;
         float pHpPct = MathHelper.Clamp(_playerHealthDisplay / pMaxHp, 0f, 1f);
-        Rectangle pBarBg = new(80, 22, 420, 26);
-        Rectangle pBarFill = new(80, 22, (int)(420 * pHpPct), 26);
+        Rectangle pBarBg = new(80, barY, barW, barH);
+        Rectangle pBarFill = new(80, barY, (int)(barW * pHpPct), barH);
         batcher.DrawRoundedRect(spriteBatch, pBarBg, 6f, Color.Black * 0.6f);
         batcher.DrawRoundedRect(spriteBatch, pBarFill, 6f, ColorPalette.PlayerBlue);
-        batcher.DrawRectangleOutline(spriteBatch, pBarBg, ColorPalette.WallOutline, 1.5f);
-        font.DrawText(spriteBatch, $"{(int)_player.CurrentHealth} / {(int)pMaxHp}", new Vector2(92, 24), Color.White, 0.68f);
+        batcher.DrawRectangleOutline(spriteBatch, pBarBg, ColorPalette.WallOutline, 2f);
+        font.DrawText(spriteBatch, $"{(int)_player.CurrentHealth} / {(int)pMaxHp}", new Vector2(96, barY + (mobile ? 4 : 2)), Color.White, hpFontScale);
 
         // 玩家副武器 CD 状态条
         if (_player.SubWeapon != null)
         {
+            int cdW = mobile ? 260 : 180;
+            int cdH = mobile ? 16 : 12;
+            int cdY = barY + barH + 8;
             float cdPct = 1f - MathHelper.Clamp(_player.SubWeapon.CurrentCooldown / _player.SubWeapon.Cooldown, 0f, 1f);
-            Rectangle cdBar = new(80, 54, 180, 12);
+            Rectangle cdBar = new(80, cdY, cdW, cdH);
             batcher.DrawRectangle(spriteBatch, cdBar, Color.Black * 0.5f);
-            batcher.DrawRectangle(spriteBatch, new Rectangle(80, 54, (int)(180 * cdPct), 12), _player.SubWeapon.IsReady ? ColorPalette.BlockShield : ColorPalette.TextGray);
+            batcher.DrawRectangle(spriteBatch, new Rectangle(80, cdY, (int)(cdW * cdPct), cdH), _player.SubWeapon.IsReady ? ColorPalette.BlockShield : ColorPalette.TextGray);
         }
 
         // --- 中央回合比分与胜场圆点 ---
-        Vector2 centerScore = new(VirtualViewport.VirtualWidth * 0.5f, 41f);
-        font.DrawText(spriteBatch, $"{_manager.PlayerScore}  :  {_manager.AiScore}", centerScore, Color.White, 1.5f, new Vector2(0.5f, 0.5f));
+        Vector2 centerScore = new(VirtualViewport.VirtualWidth * 0.5f, topBarH * 0.5f);
+        font.DrawText(spriteBatch, $"{_manager.PlayerScore}  :  {_manager.AiScore}", centerScore, Color.White, mobile ? 1.85f : 1.5f, new Vector2(0.5f, 0.5f));
 
+        float dotR = mobile ? 10f : 7f;
+        float dotStep = mobile ? 28f : 22f;
+        float dotStart = mobile ? 115f : 95f;
         for (int i = 0; i < SceneManager.TargetWins; i++)
         {
-            Vector2 pDot = new(centerScore.X - 95f - i * 22f, centerScore.Y);
+            Vector2 pDot = new(centerScore.X - dotStart - i * dotStep, centerScore.Y);
             if (i < _manager.PlayerScore)
-                batcher.DrawFilledCircle(spriteBatch, pDot, 7f, ColorPalette.PlayerBlue);
+                batcher.DrawFilledCircle(spriteBatch, pDot, dotR, ColorPalette.PlayerBlue);
             else
-                batcher.DrawCircleOutline(spriteBatch, pDot, 7f, ColorPalette.WallOutline, 2f);
+                batcher.DrawCircleOutline(spriteBatch, pDot, dotR, ColorPalette.WallOutline, 2.5f);
 
-            Vector2 aiDot = new(centerScore.X + 95f + i * 22f, centerScore.Y);
+            Vector2 aiDot = new(centerScore.X + dotStart + i * dotStep, centerScore.Y);
             if (i < _manager.AiScore)
-                batcher.DrawFilledCircle(spriteBatch, aiDot, 7f, ColorPalette.PlayerRed);
+                batcher.DrawFilledCircle(spriteBatch, aiDot, dotR, ColorPalette.PlayerRed);
             else
-                batcher.DrawCircleOutline(spriteBatch, aiDot, 7f, ColorPalette.WallOutline, 2f);
+                batcher.DrawCircleOutline(spriteBatch, aiDot, dotR, ColorPalette.WallOutline, 2.5f);
         }
 
         // --- AI 对手血条 (右) ---
         float aiMaxHp = _ai.MaxHealth;
         float aiHpPct = MathHelper.Clamp(_aiHealthDisplay / aiMaxHp, 0f, 1f);
-        Rectangle aiBarBg = new(VirtualViewport.VirtualWidth - 500, 22, 420, 26);
-        Rectangle aiBarFill = new(VirtualViewport.VirtualWidth - 500 + (int)(420 * (1f - aiHpPct)), 22, (int)(420 * aiHpPct), 26);
+        int aiBarX = VirtualViewport.VirtualWidth - 80 - barW;
+        Rectangle aiBarBg = new(aiBarX, barY, barW, barH);
+        Rectangle aiBarFill = new(aiBarX + (int)(barW * (1f - aiHpPct)), barY, (int)(barW * aiHpPct), barH);
         batcher.DrawRoundedRect(spriteBatch, aiBarBg, 6f, Color.Black * 0.6f);
         batcher.DrawRoundedRect(spriteBatch, aiBarFill, 6f, ColorPalette.PlayerRed);
-        batcher.DrawRectangleOutline(spriteBatch, aiBarBg, ColorPalette.WallOutline, 1.5f);
-        font.DrawText(spriteBatch, $"{(int)_ai.CurrentHealth} / {(int)aiMaxHp}", new Vector2(VirtualViewport.VirtualWidth - 92, 24), Color.White, 0.68f, new Vector2(1f, 0f));
+        batcher.DrawRectangleOutline(spriteBatch, aiBarBg, ColorPalette.WallOutline, 2f);
+        font.DrawText(spriteBatch, $"{(int)_ai.CurrentHealth} / {(int)aiMaxHp}", new Vector2(VirtualViewport.VirtualWidth - 96, barY + (mobile ? 4 : 2)), Color.White, hpFontScale, new Vector2(1f, 0f));
 
         // AI 副武器 CD
         if (_ai.SubWeapon != null)
         {
+            int cdW = mobile ? 260 : 180;
+            int cdH = mobile ? 16 : 12;
+            int cdY = barY + barH + 8;
+            int aiCdX = VirtualViewport.VirtualWidth - 80 - cdW;
             float aiCdPct = 1f - MathHelper.Clamp(_ai.SubWeapon.CurrentCooldown / _ai.SubWeapon.Cooldown, 0f, 1f);
-            Rectangle aiCdBar = new(VirtualViewport.VirtualWidth - 260, 54, 180, 12);
+            Rectangle aiCdBar = new(aiCdX, cdY, cdW, cdH);
             batcher.DrawRectangle(spriteBatch, aiCdBar, Color.Black * 0.5f);
-            batcher.DrawRectangle(spriteBatch, new Rectangle(VirtualViewport.VirtualWidth - 260 + (int)(180 * (1f - aiCdPct)), 54, (int)(180 * aiCdPct), 12), ColorPalette.DashTrail);
+            batcher.DrawRectangle(spriteBatch, new Rectangle(aiCdX + (int)(cdW * (1f - aiCdPct)), cdY, (int)(cdW * aiCdPct), cdH), ColorPalette.DashTrail);
         }
     }
 

@@ -303,18 +303,25 @@ public class ProceduralFont : IDisposable
     {
         string[] candidates =
         {
-            @"C:\Windows\Fonts\simhei.ttf",       // Windows 黑体 (首选，单体 TTF 锐利清晰)
-            @"C:\Windows\Fonts\msyh.ttc",         // Windows 微软雅黑 (TTC 集合)
-            @"C:\Windows\Fonts\msyhbd.ttc",       // Windows 微软雅黑粗体
-            @"C:\Windows\Fonts\simsun.ttc",       // Windows 宋体
-            @"C:\Windows\Fonts\simkai.ttf",       // Windows 楷体
-            @"C:\Windows\Fonts\simfang.ttf",      // Windows 仿宋
-            "/system/fonts/NotoSansCJK-Regular.ttc", // Android 标准中文字体
+            @"C:\Windows\Fonts\simhei.ttf",          // Windows 黑体 (首选，单体 TTF 锐利清晰)
+            @"C:\Windows\Fonts\msyh.ttc",            // Windows 微软雅黑 (TTC 集合)
+            @"C:\Windows\Fonts\msyhbd.ttc",          // Windows 微软雅黑粗体
+            @"C:\Windows\Fonts\simsun.ttc",          // Windows 宋体
+            @"C:\Windows\Fonts\simkai.ttf",          // Windows 楷体
+            @"C:\Windows\Fonts\simfang.ttf",         // Windows 仿宋
+            "/product/fonts/MiSansVF.ttf",           // 小米/Redmi HyperOS & MIUI 系统中文矢量字体
+            "/system/fonts/MiSansVF.ttf",            // 小米/Redmi 备选路径
+            "/product/fonts/MiSansL3.otf",           // 小米/Redmi OTF 中文
+            "/system/fonts/NotoSansCJK-Regular.ttc", // Android 标准中文字体集合 (Index 2 为简体中文)
+            "/system/fonts/NotoSerifCJK-Regular.ttc",// Android 衬线中文字体集合
             "/system/fonts/NotoSansSC-Regular.otf",  // Android 简体中文
             "/system/fonts/DroidSansFallback.ttf",   // Android 备选字体
-            "/system/fonts/Roboto-Regular.ttf",      // Android 基础字体
-            @"C:\Windows\Fonts\arial.ttf"         // Windows 兜底英文字体
+            "/system/fonts/Roboto-Regular.ttf",      // Android 基础英文字体 (兜底)
+            @"C:\Windows\Fonts\arial.ttf"            // Windows 基础英文字体 (兜底)
         };
+
+        byte[]? fallbackData = null;
+        StbTrueType.stbtt_fontinfo? fallbackInfo = null;
 
         foreach (var path in candidates)
         {
@@ -323,30 +330,41 @@ public class ProceduralFont : IDisposable
                 try
                 {
                     byte[] data = File.ReadAllBytes(path);
-                    int offset = 0;
-                    unsafe
+                    // 对于 .ttc 字体集合，尝试前 5 个子字体索引（例如 NotoSansCJK 中 SC 常位于 index 2）
+                    int maxIndex = path.EndsWith(".ttc", StringComparison.OrdinalIgnoreCase) ? 5 : 1;
+                    for (int idx = 0; idx < maxIndex; idx++)
                     {
-                        fixed (byte* ptr = data)
+                        int offset = 0;
+                        unsafe
                         {
-                            offset = StbTrueType.stbtt_GetFontOffsetForIndex(ptr, 0);
+                            fixed (byte* ptr = data)
+                            {
+                                offset = StbTrueType.stbtt_GetFontOffsetForIndex(ptr, idx);
+                            }
                         }
-                    }
-                    if (offset < 0) offset = 0;
-
-                    var info = StbTrueType.CreateFont(data, offset);
-                    if (info != null)
-                    {
-                        // 校验中文字形 '战' 是否存在于该字体库中
-                        int testGlyph = StbTrueType.stbtt_FindGlyphIndex(info, '战');
-                        if (testGlyph > 0)
+                        if (offset < 0)
                         {
-                            Console.WriteLine($"[ProceduralFont] 成功装载中文字体: {path} (偏移量: {offset})");
-                            return (data, info);
+                            if (idx == 0) offset = 0;
+                            else break;
                         }
 
-                        // 若为英文字体且未找到中文，先保留为基础字库
-                        Console.WriteLine($"[ProceduralFont] 已装载基础字体: {path}");
-                        return (data, info);
+                        var info = StbTrueType.CreateFont(data, offset);
+                        if (info != null)
+                        {
+                            // 校验中文字形 '战' 是否存在于该字体库中
+                            int testGlyph = StbTrueType.stbtt_FindGlyphIndex(info, '战');
+                            if (testGlyph > 0)
+                            {
+                                Console.WriteLine($"[ProceduralFont] 成功装载中文字体: {path} (Index: {idx}, 偏移量: {offset})");
+                                return (data, info);
+                            }
+
+                            if (fallbackInfo == null)
+                            {
+                                fallbackData = data;
+                                fallbackInfo = info;
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -354,6 +372,12 @@ public class ProceduralFont : IDisposable
                     Console.WriteLine($"[ProceduralFont] 尝试加载字体库 {path} 异常: {ex.Message}");
                 }
             }
+        }
+
+        if (fallbackInfo != null)
+        {
+            Console.WriteLine("[ProceduralFont] 已装载兜底基础字体");
+            return (fallbackData, fallbackInfo);
         }
 
         Console.WriteLine("[ProceduralFont] 警告: 未找到可用系统字体库，将启用程序化点阵兜底");
