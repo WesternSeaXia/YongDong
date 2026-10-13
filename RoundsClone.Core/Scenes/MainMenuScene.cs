@@ -78,7 +78,7 @@ public class MainMenuScene : IScene
         }
         else if (_btnToggleControls.Contains(mousePos) && click)
         {
-            _manager.Input.ShowVirtualControls = !_manager.Input.ShowVirtualControls;
+            _manager.ChangeScene(new SettingsScene(_manager, _exitGameAction));
         }
         else if (_btnExit.Contains(mousePos) && click)
         {
@@ -115,8 +115,7 @@ public class MainMenuScene : IScene
 
         // 3. 按钮列表
         DrawButton(batcher, spriteBatch, font, _btnStart, "开始游戏", mousePos, ColorPalette.PlayerBlue);
-        string toggleText = _manager.Input.ShowVirtualControls ? "虚拟摇杆: 开" : "虚拟摇杆: 关";
-        DrawButton(batcher, spriteBatch, font, _btnToggleControls, toggleText, mousePos, ColorPalette.TextGray);
+        DrawButton(batcher, spriteBatch, font, _btnToggleControls, "游戏设置", mousePos, ColorPalette.PlayerGreen);
         DrawButton(batcher, spriteBatch, font, _btnExit, "退出游戏", mousePos, ColorPalette.PlayerRed * 0.8f);
     }
 
