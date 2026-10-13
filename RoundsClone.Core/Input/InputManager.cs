@@ -11,8 +11,7 @@ namespace RoundsClone.Core.Input;
 
 /// <summary>
 /// 跨平台统一输入控制器。
-/// 兼顾 Windows 端的键盘+鼠标精准操作，以及 Android 移动端的触控双虚拟摇杆+动作按钮。
-/// 支持在 PC 上通过鼠标或按键实时模拟触控，方便跨平台交互测试。
+/// 职责边界：负责采集键盘、鼠标与多点触控硬件状态，解算动态虚拟摇杆与动作按钮的触控锁定逻辑，并输出统一的 <see cref="ControlInputState"/>；视觉渲染委托给 <see cref="VirtualControlsRenderer"/>。
 /// </summary>
 public class InputManager
 {
@@ -77,6 +76,15 @@ public class InputManager
 
     private bool _touchJustPressed = false;
 
+    // --- 供 VirtualControlsRenderer 读取的只读视觉状态属性 ---
+    public Vector2 LeftKnobOffset => _leftKnobOffset;
+    public bool IsLeftStickActive => _leftStickActive;
+    public Vector2 RightKnobOffset => _rightKnobOffset;
+    public bool IsRightStickActive => _rightStickActive;
+    public bool IsFireButtonPressed => _fireButtonPressed;
+    public bool IsSecondaryButtonPressed => _secondaryButtonPressed;
+    public bool IsJumpButtonPressed => _jumpButtonPressed;
+
     /// <summary>
     /// 鼠标（或手指触点）在虚拟 1920x1080 世界空间下的实时坐标。
     /// </summary>
@@ -129,6 +137,9 @@ public class InputManager
         }
     }
 
+    /// <summary>
+    /// 处理真实多点触控屏的 TouchId 锁定与按键判定。
+    /// </summary>
     private void UpdateTouches(TouchCollection touches, VirtualViewport viewport)
     {
         bool leftStillHeld = false;
@@ -218,7 +229,7 @@ public class InputManager
             {
                 _leftStickTouchId = touch.Id;
                 _leftStickActive = true;
-                LeftStickCenter = vPos; // 锁定在手指按下的位置
+                LeftStickCenter = vPos;
                 _leftKnobOffset = Vector2.Zero;
                 continue;
             }
@@ -240,6 +251,9 @@ public class InputManager
         }
     }
 
+    /// <summary>
+    /// 在桌面端支持用鼠标左键拖拽模拟虚拟摇杆与按钮点击。
+    /// </summary>
     private void UpdateMouseVirtualTouches()
     {
         float deadzoneRadius = StickRadius * StickDeadzoneRatio;
@@ -291,7 +305,7 @@ public class InputManager
                     {
                         _mouseLockedStick = 1;
                         _leftStickActive = true;
-                        LeftStickCenter = VirtualMousePosition; // 锁定在按下瞬间的位置
+                        LeftStickCenter = VirtualMousePosition;
                         _leftKnobOffset = Vector2.Zero;
                         return;
                     }
@@ -353,7 +367,6 @@ public class InputManager
         // 3. 瞄准方向与射击
         if (LeftStickControlsAim)
         {
-            // 左摇杆控制瞄准模式：摇杆超出死区时实时更新瞄准方向，右侧按键控制开火
             if (_leftStickActive && _leftKnobOffset.Length() > deadzoneRadius)
             {
                 _lastTouchAim = MathHelper2D.SafeNormalize(_leftKnobOffset);
@@ -373,7 +386,6 @@ public class InputManager
         }
         else
         {
-            // 双摇杆模式：右摇杆超出死区时决定瞄准角并自动开火
             if (_rightStickActive && _rightKnobOffset.Length() > deadzoneRadius)
             {
                 _lastTouchAim = MathHelper2D.SafeNormalize(_rightKnobOffset);
@@ -411,80 +423,10 @@ public class InputManager
     public bool IsLeftClickJustPressed() => (_currMouse.LeftButton == ButtonState.Pressed && _prevMouse.LeftButton != ButtonState.Pressed) || _touchJustPressed;
 
     /// <summary>
-    /// 渲染符合双手人体工学的半透明霓虹虚拟触控摇杆与技能按键。
+    /// 渲染虚拟触控摇杆与技能按钮（委托给 <see cref="VirtualControlsRenderer"/>）。
     /// </summary>
     public void DrawTouchControls(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font, Actor? player = null)
     {
-        if (!ShowVirtualControls) return;
-
-        float deadzoneRadius = StickRadius * StickDeadzoneRatio;
-        Color baseRing = Color.White * 0.26f;
-        Color leftActiveRing = _leftStickActive ? ColorPalette.PlayerBlue * 0.80f : baseRing;
-
-        // 1. 左侧跟随式移动摇杆（含中心死区圆环指示）
-        float leftAlpha = _leftStickActive ? 1.0f : 0.65f;
-        batcher.DrawFilledCircle(spriteBatch, LeftStickCenter, StickRadius, Color.Black * (0.32f * leftAlpha));
-        batcher.DrawCircleOutline(spriteBatch, LeftStickCenter, StickRadius, leftActiveRing * leftAlpha, _leftStickActive ? 4f : 2.5f);
-        // 死区边界环
-        batcher.DrawCircleOutline(spriteBatch, LeftStickCenter, deadzoneRadius, Color.White * (0.22f * leftAlpha), 1.8f);
-
-        if (_leftStickActive && _leftKnobOffset.Length() > deadzoneRadius)
-        {
-            batcher.DrawLine(spriteBatch, LeftStickCenter, LeftStickCenter + _leftKnobOffset, ColorPalette.PlayerBlue * 0.55f, 4f);
-        }
-        Vector2 leftKnobPos = LeftStickCenter + _leftKnobOffset;
-        batcher.DrawFilledCircle(spriteBatch, leftKnobPos, StickRadius * 0.38f, ColorPalette.PlayerBlue * (_leftStickActive ? 0.78f : 0.38f));
-        batcher.DrawCircleOutline(spriteBatch, leftKnobPos, StickRadius * 0.38f, Color.White * (0.65f * leftAlpha), 2f);
-
-        // 2. 右侧区域：根据 LeftStickControlsAim 切换“右发射摇杆”或“独立开火大按键”
-        if (!LeftStickControlsAim)
-        {
-            Color rightActiveRing = _rightStickActive ? ColorPalette.PlayerRed * 0.80f : baseRing;
-            batcher.DrawFilledCircle(spriteBatch, RightStickCenter, StickRadius, Color.Black * 0.32f);
-            batcher.DrawCircleOutline(spriteBatch, RightStickCenter, StickRadius, rightActiveRing, _rightStickActive ? 4f : 2.5f);
-            batcher.DrawCircleOutline(spriteBatch, RightStickCenter, deadzoneRadius, Color.White * 0.20f, 1.8f);
-            if (_rightStickActive && _rightKnobOffset.Length() > deadzoneRadius)
-            {
-                batcher.DrawLine(spriteBatch, RightStickCenter, RightStickCenter + _rightKnobOffset, ColorPalette.PlayerRed * 0.55f, 4f);
-            }
-            Vector2 rightKnobPos = RightStickCenter + _rightKnobOffset;
-            batcher.DrawFilledCircle(spriteBatch, rightKnobPos, StickRadius * 0.38f, ColorPalette.PlayerRed * (_rightStickActive ? 0.78f : 0.45f));
-            batcher.DrawCircleOutline(spriteBatch, rightKnobPos, StickRadius * 0.38f, Color.White * 0.65f, 2f);
-        }
-        else
-        {
-            // 右侧独立开火大按键
-            Color fireBg = _fireButtonPressed ? ColorPalette.PlayerRed * 0.85f : ColorPalette.PlayerRed * 0.38f;
-            batcher.DrawFilledCircle(spriteBatch, FireButtonCenter, FireButtonRadius, fireBg);
-            batcher.DrawCircleOutline(spriteBatch, FireButtonCenter, FireButtonRadius, ColorPalette.PlayerRed, _fireButtonPressed ? 5f : 3.5f);
-            batcher.DrawCircleOutline(spriteBatch, FireButtonCenter, FireButtonRadius * 0.78f, Color.White * 0.3f, 2f);
-            font.DrawText(spriteBatch, "开火", FireButtonCenter, Color.White, 1.25f, new Vector2(0.5f, 0.5f));
-        }
-
-        // 3. 右手内弧形跳跃按钮
-        Color rightJumpColor = _jumpButtonPressed ? ColorPalette.PlayerGreen * 0.78f : Color.Black * 0.38f;
-        batcher.DrawFilledCircle(spriteBatch, JumpButtonCenter, JumpButtonRadius, rightJumpColor);
-        batcher.DrawCircleOutline(spriteBatch, JumpButtonCenter, JumpButtonRadius, ColorPalette.PlayerGreen * 0.8f, 3.5f);
-        font.DrawText(spriteBatch, "跳跃", JumpButtonCenter, Color.White, 0.98f, new Vector2(0.5f, 0.5f));
-
-        // 4. 右手内弧形技能(副武器)按钮（支持实时冷却显示）
-        bool subReady = player?.SubWeapon == null || player.SubWeapon.IsReady;
-        string subName = player?.SubWeapon?.Name ?? "技能";
-        Color secBgColor = _secondaryButtonPressed
-            ? ColorPalette.BlockShield * 0.85f
-            : (subReady ? ColorPalette.BlockShield * 0.38f : Color.Black * 0.45f);
-        Color secBorderColor = subReady ? ColorPalette.BlockShield : ColorPalette.TextGray * 0.5f;
-
-        batcher.DrawFilledCircle(spriteBatch, SecondaryButtonCenter, ButtonRadius, secBgColor);
-        batcher.DrawCircleOutline(spriteBatch, SecondaryButtonCenter, ButtonRadius, secBorderColor, subReady ? 4f : 2.5f);
-        if (!subReady && player?.SubWeapon != null)
-        {
-            string cdText = $"{player.SubWeapon.CurrentCooldown:0.0}s";
-            font.DrawText(spriteBatch, cdText, SecondaryButtonCenter, ColorPalette.PlayerYellow, 0.95f, new Vector2(0.5f, 0.5f));
-        }
-        else
-        {
-            font.DrawText(spriteBatch, subName, SecondaryButtonCenter, Color.White, 0.92f, new Vector2(0.5f, 0.5f));
-        }
+        VirtualControlsRenderer.Draw(batcher, spriteBatch, font, this, player);
     }
 }

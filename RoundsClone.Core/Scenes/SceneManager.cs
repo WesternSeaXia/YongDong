@@ -13,34 +13,8 @@ using RoundsClone.Core.SubWeapons;
 namespace RoundsClone.Core.Scenes;
 
 /// <summary>
-/// 游戏场景生命周期接口。
-/// </summary>
-public interface IScene
-{
-    /// <summary>
-    /// 进入场景时调用。
-    /// </summary>
-    void Enter();
-
-    /// <summary>
-    /// 帧更新场景逻辑。
-    /// </summary>
-    void Update(float dt);
-
-    /// <summary>
-    /// 渲染场景画面。
-    /// </summary>
-    void Draw(SpriteBatch spriteBatch);
-
-    /// <summary>
-    /// 离开场景时调用。
-    /// </summary>
-    void Exit();
-}
-
-/// <summary>
 /// 全局场景状态机与战局上下文管理器。
-/// 协调场景流转（主菜单 -> 角色定制 -> 关卡三选一 -> 战斗对决 -> 技能三选一 -> 结算）。
+/// 职责边界：持有跨场景共享的全局渲染器、输入与特效实例，维护整场对决的比分与双方卡组上下文，并调度 <see cref="IScene"/> 场景生命周期切换。
 /// </summary>
 public class SceneManager
 {
@@ -82,7 +56,7 @@ public class SceneManager
     }
 
     /// <summary>
-    /// 切换到新场景并执行退出与进入生命周期。
+    /// 切换到新场景并执行旧场景退出与新场景进入生命周期。
     /// </summary>
     public void ChangeScene(IScene newScene)
     {
@@ -104,7 +78,7 @@ public class SceneManager
     }
 
     /// <summary>
-    /// 帧更新当前活跃场景。
+    /// 帧更新全局特效（粒子与震屏）及当前活跃场景。
     /// </summary>
     public void Update(float dt)
     {

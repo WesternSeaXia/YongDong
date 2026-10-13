@@ -7,7 +7,6 @@ using RoundsClone.Core.AI;
 using RoundsClone.Core.Cards;
 using RoundsClone.Core.Common;
 using RoundsClone.Core.Entities;
-using RoundsClone.Core.Graphics;
 using RoundsClone.Core.Maps;
 using RoundsClone.Core.Physics;
 using RoundsClone.Core.SubWeapons;
@@ -16,18 +15,18 @@ namespace RoundsClone.Core.Scenes;
 
 /// <summary>
 /// 核心战斗决斗场场景。
-/// 包含物理世界步进、子弹弹道碰撞解算、格挡反弹拦截、慢动作受击反馈、HUD 界面以及回合胜负结算。
+/// 职责边界：负责协调单局战斗的物理世界步进、角色与 AI 行为更新、子弹碰撞与格挡偏转判定以及回合胜负结算流转；UI 绘制委托给 <see cref="BattleHudRenderer"/>。
 /// </summary>
 public class BattleScene : IScene
 {
     private readonly SceneManager _manager;
     private readonly Action _exitAction;
 
-    private CollisionWorld _world = new();
-    private MapData _map;
-    private Actor _player;
-    private Actor _ai;
-    private IAiBrain _aiBrain = new TacticalCombatAi();
+    private readonly CollisionWorld _world = new();
+    private readonly MapData _map;
+    private readonly Actor _player;
+    private readonly Actor _ai;
+    private readonly IAiBrain _aiBrain = new TacticalCombatAi();
 
     private readonly List<Projectile> _projectiles = new();
     private readonly List<Projectile> _spawnQueue = new();
@@ -48,7 +47,6 @@ public class BattleScene : IScene
         _exitAction = exitAction;
         _map = _manager.CurrentMap ?? MapRegistry.CreateClassicArena();
 
-        // 实例化实体
         _player = new Actor(_map.PlayerSpawn, _manager.PlayerColor, isAi: false)
         {
             Name = "玩家",
@@ -64,6 +62,7 @@ public class BattleScene : IScene
         };
     }
 
+    /// <inheritdoc />
     public void Enter()
     {
         _world.Clear();
@@ -72,7 +71,7 @@ public class BattleScene : IScene
         _world.AddCollider(_player.Collider);
         _world.AddCollider(_ai.Collider);
 
-        // 应用双方累计卡牌
+        // 应用双方累计卡牌插件
         foreach (var card in _manager.PlayerCards)
         {
             _player.AppliedCards.Add(card);
@@ -99,23 +98,24 @@ public class BattleScene : IScene
         _projectiles.Clear();
     }
 
+    /// <inheritdoc />
     public void Update(float rawDt)
     {
         // 慢动作缩放 (击杀定格冲击力)
         float dt = rawDt * _timeScale;
 
-        // 1. 采集输入
+        // 1. 采集玩家输入与 AI 决策
         ControlInputState playerInput = _manager.Input.GetPlayerInputState(_player);
         ControlInputState aiInput = _aiBrain.Think(_ai, _player, _projectiles, _world, dt);
 
-        // 2. 更新实体
+        // 2. 更新角色实体
         _player.Update(dt, playerInput, _world, _manager.Particles, _manager.Shake, SpawnProjectile);
         _ai.Update(dt, aiInput, _world, _manager.Particles, _manager.Shake, SpawnProjectile);
 
         // 3. 物理世界模拟步进与碰撞判定
         _world.Step(dt, OnPhysicsCollision);
 
-        // 4. 处理新增子弹
+        // 4. 注册新派生子弹
         if (_spawnQueue.Count > 0)
         {
             foreach (var p in _spawnQueue)
@@ -126,7 +126,7 @@ public class BattleScene : IScene
             _spawnQueue.Clear();
         }
 
-        // 5. 更新与清理子弹
+        // 5. 更新与清理活跃子弹
         for (int i = _projectiles.Count - 1; i >= 0; i--)
         {
             var p = _projectiles[i];
@@ -147,24 +147,31 @@ public class BattleScene : IScene
         _playerHealthDisplay = MathHelper.Lerp(_playerHealthDisplay, _player.CurrentHealth, dt * 10f);
         _aiHealthDisplay = MathHelper.Lerp(_aiHealthDisplay, _ai.CurrentHealth, dt * 10f);
 
-        // 7. 回合终局判定
+        // 7. 回合终局判定与流转
+        UpdateRoundLifecycle(rawDt);
+
+        // ESC 键随时返回主菜单
+        if (_manager.Input.IsKeyJustPressed(Keys.Escape))
+        {
+            _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
+        }
+    }
+
+    /// <summary>
+    /// 维护单局胜负结算、慢动作定格与下一场景跳转。
+    /// </summary>
+    private void UpdateRoundLifecycle(float rawDt)
+    {
         if (!_roundEnded)
         {
             if (_player.IsDead || _ai.IsDead)
             {
                 _roundEnded = true;
                 _roundEndTimer = 0f;
-                _timeScale = 0.25f; // 慢动作爆发
+                _timeScale = 0.25f;
                 _manager.Shake.AddTrauma(0.7f);
 
-                if (_player.IsDead && _ai.IsDead)
-                {
-                    _playerWonRound = false; // 平局
-                }
-                else
-                {
-                    _playerWonRound = !_player.IsDead;
-                }
+                _playerWonRound = !(_player.IsDead && _ai.IsDead) && !_player.IsDead;
 
                 if (_playerWonRound) _manager.PlayerScore++;
                 else _manager.AiScore++;
@@ -174,41 +181,29 @@ public class BattleScene : IScene
         }
         else
         {
-            _roundEndTimer += rawDt; // 使用真实时间倒计时
+            _roundEndTimer += rawDt;
             if (_roundEndTimer >= 1.6f)
             {
-                // 回合结算跳转
                 if (_manager.PlayerScore >= SceneManager.TargetWins || _manager.AiScore >= SceneManager.TargetWins)
                 {
-                    // 比赛完全结束
                     _manager.ChangeScene(new GameOverScene(_manager, _exitAction));
+                }
+                else if (!_playerWonRound)
+                {
+                    // 回合落后者挑选强化卡牌反制
+                    _manager.ChangeScene(new CardSelectScene(_manager, _exitAction, isForPlayer: true));
                 }
                 else
                 {
-                    // 根据 Rounds 经典平衡机制：回合落后者挑选强化卡牌反制！
-                    if (!_playerWonRound)
+                    // AI 落败时自动从卡池抽取一张卡牌强化，随后进入地图选择
+                    var draft = CardRegistry.DraftCards(1);
+                    if (draft.Count > 0)
                     {
-                        // 玩家输了，进入玩家技能三选一
-                        _manager.ChangeScene(new CardSelectScene(_manager, _exitAction, isForPlayer: true));
+                        _manager.AiCards.Add(draft[0]);
                     }
-                    else
-                    {
-                        // AI 输了，AI 自动从卡池中随机抽取一张卡牌强化，然后玩家选下一关
-                        var draft = CardRegistry.DraftCards(1);
-                        if (draft.Count > 0)
-                        {
-                            _manager.AiCards.Add(draft[0]);
-                        }
-                        _manager.ChangeScene(new StageSelectScene(_manager, _exitAction));
-                    }
+                    _manager.ChangeScene(new StageSelectScene(_manager, _exitAction));
                 }
             }
-        }
-
-        // ESC 键随时返回
-        if (_manager.Input.IsKeyJustPressed(Keys.Escape))
-        {
-            _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
         }
     }
 
@@ -219,17 +214,19 @@ public class BattleScene : IScene
 
     private void OnPhysicsCollision(CollisionManifold m)
     {
-        // 检查子弹撞击
         CheckProjectileCollision(m.ColliderA, m.ColliderB, m);
         CheckProjectileCollision(m.ColliderB, m.ColliderA, m);
     }
 
+    /// <summary>
+    /// 处理子弹与墙体或角色碰撞的伤害、击退及技能卡钩子派发。
+    /// </summary>
     private void CheckProjectileCollision(Collider maybeProjCol, Collider otherCol, CollisionManifold m)
     {
         Projectile? proj = _projectiles.Find(p => p.Collider == maybeProjCol && !p.IsDestroyed);
         if (proj == null) return;
 
-        // 1. 子弹撞墙
+        // 1. 子弹撞击墙体
         if (otherCol is BoxCollider)
         {
             if (proj.RemainingBounces > 0)
@@ -243,7 +240,6 @@ public class BattleScene : IScene
             }
             else
             {
-                // 无反弹次数：直接粉碎并产生撞击火花
                 _manager.Particles.EmitHitSparks(m.ContactPoint, m.Normal, proj.BulletColor, 8);
                 proj.Destroy();
             }
@@ -267,6 +263,9 @@ public class BattleScene : IScene
         }
     }
 
+    /// <summary>
+    /// 检测并执行副武器能量护盾对来袭子弹的弹反偏转。
+    /// </summary>
     private void CheckBlockDeflection(Projectile proj, Actor defender)
     {
         if (proj.IsDestroyed || proj.Owner == defender) return;
@@ -276,16 +275,13 @@ public class BattleScene : IScene
             float dist = Vector2.Distance(proj.Body.Position, defender.Body.Position);
             if (dist <= block.ShieldRadius + proj.Radius)
             {
-                // 成功格挡偏转：反转速度矢量并加速 40%，拥有者变更为格挡者
                 proj.Body.Velocity = -proj.Body.Velocity * 1.4f;
                 proj.Owner = defender;
                 proj.BulletColor = defender.ThemeColor;
 
-                // 特效反馈
                 _manager.Particles.EmitShieldDeflectWave(proj.Body.Position, 40f, defender.ThemeColor);
                 _manager.Shake.AddTrauma(0.35f);
 
-                // 检查绝对弹反卡牌
                 if (defender.AppliedCards.Exists(c => c is AbsoluteParryCard))
                 {
                     block.CurrentCooldown = 0f;
@@ -295,6 +291,7 @@ public class BattleScene : IScene
         }
     }
 
+    /// <inheritdoc />
     public void Draw(SpriteBatch spriteBatch)
     {
         var batcher = _manager.ShapeBatcher;
@@ -317,107 +314,28 @@ public class BattleScene : IScene
         _ai.Draw(batcher, spriteBatch);
 
         // 5. 渲染顶部对战 HUD
-        DrawBattleHUD(batcher, spriteBatch, font);
+        BattleHudRenderer.DrawTopBar(
+            batcher,
+            spriteBatch,
+            font,
+            _player,
+            _ai,
+            _playerHealthDisplay,
+            _aiHealthDisplay,
+            _manager.PlayerScore,
+            _manager.AiScore);
 
-        // 6. 渲染触控虚拟摇杆（传入 _player 以实时渲染副武器技能按钮冷却）
+        // 6. 渲染触控虚拟摇杆与按钮
         _manager.Input.DrawTouchControls(batcher, spriteBatch, font, _player);
 
         // 7. 回合结算大字横幅
         if (_roundEnded)
         {
-            string bannerText = _playerWonRound ? "回合胜利" : "回合失败";
-            Color bannerColor = _playerWonRound ? ColorPalette.PlayerGreen : ColorPalette.PlayerRed;
-            Vector2 center = new(VirtualViewport.VirtualWidth * 0.5f, 460f);
-
-            batcher.DrawRectangle(spriteBatch, new Rectangle(0, (int)center.Y - 60, VirtualViewport.VirtualWidth, 120), Color.Black * 0.65f);
-            font.DrawText(spriteBatch, bannerText, center, bannerColor, 2.6f, new Vector2(0.5f, 0.5f));
+            BattleHudRenderer.DrawRoundBanner(batcher, spriteBatch, font, _playerWonRound);
         }
     }
 
-    private void DrawBattleHUD(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font)
-    {
-        bool mobile = VirtualViewport.IsMobile;
-        int topBarH = mobile ? 96 : 82;
-
-        // 顶部 HUD 栏背景
-        Rectangle topBar = new(0, 0, VirtualViewport.VirtualWidth, topBarH);
-        batcher.DrawRectangle(spriteBatch, topBar, ColorPalette.BackgroundDark * 0.85f);
-        batcher.DrawLine(spriteBatch, new Vector2(0, topBarH), new Vector2(VirtualViewport.VirtualWidth, topBarH), ColorPalette.WallOutline, 2f);
-
-        int barW = mobile ? 520 : 420;
-        int barH = mobile ? 36 : 26;
-        int barY = mobile ? 18 : 22;
-        float hpFontScale = mobile ? 0.95f : 0.68f;
-
-        // --- 玩家血条 (左) ---
-        float pMaxHp = _player.MaxHealth;
-        float pHpPct = MathHelper.Clamp(_playerHealthDisplay / pMaxHp, 0f, 1f);
-        Rectangle pBarBg = new(80, barY, barW, barH);
-        Rectangle pBarFill = new(80, barY, (int)(barW * pHpPct), barH);
-        batcher.DrawRoundedRect(spriteBatch, pBarBg, 6f, Color.Black * 0.6f);
-        batcher.DrawRoundedRect(spriteBatch, pBarFill, 6f, ColorPalette.PlayerBlue);
-        batcher.DrawRectangleOutline(spriteBatch, pBarBg, ColorPalette.WallOutline, 2f);
-        font.DrawText(spriteBatch, $"{(int)_player.CurrentHealth} / {(int)pMaxHp}", new Vector2(96, barY + (mobile ? 4 : 2)), Color.White, hpFontScale);
-
-        // 玩家副武器 CD 状态条
-        if (_player.SubWeapon != null)
-        {
-            int cdW = mobile ? 260 : 180;
-            int cdH = mobile ? 16 : 12;
-            int cdY = barY + barH + 8;
-            float cdPct = 1f - MathHelper.Clamp(_player.SubWeapon.CurrentCooldown / _player.SubWeapon.Cooldown, 0f, 1f);
-            Rectangle cdBar = new(80, cdY, cdW, cdH);
-            batcher.DrawRectangle(spriteBatch, cdBar, Color.Black * 0.5f);
-            batcher.DrawRectangle(spriteBatch, new Rectangle(80, cdY, (int)(cdW * cdPct), cdH), _player.SubWeapon.IsReady ? ColorPalette.BlockShield : ColorPalette.TextGray);
-        }
-
-        // --- 中央回合比分与胜场圆点 ---
-        Vector2 centerScore = new(VirtualViewport.VirtualWidth * 0.5f, topBarH * 0.5f);
-        font.DrawText(spriteBatch, $"{_manager.PlayerScore}  :  {_manager.AiScore}", centerScore, Color.White, mobile ? 1.85f : 1.5f, new Vector2(0.5f, 0.5f));
-
-        float dotR = mobile ? 10f : 7f;
-        float dotStep = mobile ? 28f : 22f;
-        float dotStart = mobile ? 115f : 95f;
-        for (int i = 0; i < SceneManager.TargetWins; i++)
-        {
-            Vector2 pDot = new(centerScore.X - dotStart - i * dotStep, centerScore.Y);
-            if (i < _manager.PlayerScore)
-                batcher.DrawFilledCircle(spriteBatch, pDot, dotR, ColorPalette.PlayerBlue);
-            else
-                batcher.DrawCircleOutline(spriteBatch, pDot, dotR, ColorPalette.WallOutline, 2.5f);
-
-            Vector2 aiDot = new(centerScore.X + dotStart + i * dotStep, centerScore.Y);
-            if (i < _manager.AiScore)
-                batcher.DrawFilledCircle(spriteBatch, aiDot, dotR, ColorPalette.PlayerRed);
-            else
-                batcher.DrawCircleOutline(spriteBatch, aiDot, dotR, ColorPalette.WallOutline, 2.5f);
-        }
-
-        // --- AI 对手血条 (右) ---
-        float aiMaxHp = _ai.MaxHealth;
-        float aiHpPct = MathHelper.Clamp(_aiHealthDisplay / aiMaxHp, 0f, 1f);
-        int aiBarX = VirtualViewport.VirtualWidth - 80 - barW;
-        Rectangle aiBarBg = new(aiBarX, barY, barW, barH);
-        Rectangle aiBarFill = new(aiBarX + (int)(barW * (1f - aiHpPct)), barY, (int)(barW * aiHpPct), barH);
-        batcher.DrawRoundedRect(spriteBatch, aiBarBg, 6f, Color.Black * 0.6f);
-        batcher.DrawRoundedRect(spriteBatch, aiBarFill, 6f, ColorPalette.PlayerRed);
-        batcher.DrawRectangleOutline(spriteBatch, aiBarBg, ColorPalette.WallOutline, 2f);
-        font.DrawText(spriteBatch, $"{(int)_ai.CurrentHealth} / {(int)aiMaxHp}", new Vector2(VirtualViewport.VirtualWidth - 96, barY + (mobile ? 4 : 2)), Color.White, hpFontScale, new Vector2(1f, 0f));
-
-        // AI 副武器 CD
-        if (_ai.SubWeapon != null)
-        {
-            int cdW = mobile ? 260 : 180;
-            int cdH = mobile ? 16 : 12;
-            int cdY = barY + barH + 8;
-            int aiCdX = VirtualViewport.VirtualWidth - 80 - cdW;
-            float aiCdPct = 1f - MathHelper.Clamp(_ai.SubWeapon.CurrentCooldown / _ai.SubWeapon.Cooldown, 0f, 1f);
-            Rectangle aiCdBar = new(aiCdX, cdY, cdW, cdH);
-            batcher.DrawRectangle(spriteBatch, aiCdBar, Color.Black * 0.5f);
-            batcher.DrawRectangle(spriteBatch, new Rectangle(aiCdX + (int)(cdW * (1f - aiCdPct)), cdY, (int)(cdW * aiCdPct), cdH), ColorPalette.DashTrail);
-        }
-    }
-
+    /// <inheritdoc />
     public void Exit()
     {
         _map.CleanPhysicsWorld(_world);

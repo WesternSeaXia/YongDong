@@ -1,0 +1,35 @@
+using Microsoft.Xna.Framework;
+using RoundsClone.Core.Common;
+using RoundsClone.Core.Entities;
+using RoundsClone.Core.Graphics;
+using RoundsClone.Core.Physics;
+
+namespace RoundsClone.Core.Cards;
+
+/// <summary>
+/// 黑洞引力技能卡插件。
+/// 职责边界：增加弹匣容量，并在子弹命中目标时产生指向爆心的强力引力拉扯冲量与电光坍缩特效。
+/// </summary>
+public class ImplosionNovaCard : ICardPlugin
+{
+    public string Id => "card_implosion_nova";
+    public string Name => "黑洞引力";
+    public string Description => "命中产生强力牵引\n弹匣容量 +2";
+    public CardTier Tier => CardTier.Epic;
+    public IconType Icon => IconType.Crosshair;
+
+    public void OnApply(Actor actor)
+    {
+        actor.ImplosionBullets = true;
+        actor.MaxAmmo += 2;
+        actor.CurrentAmmo = actor.MaxAmmo;
+    }
+
+    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    {
+        Vector2 hitCenter = projectile.Body.Position;
+        Vector2 pullDir = MathHelper2D.SafeNormalize(hitCenter - target.Body.Position);
+        target.Body.ApplyImpulse(pullDir * 650f);
+        particles.EmitExplosion(hitCenter, 80f, ColorPalette.ElectricPurple, 18);
+    }
+}
