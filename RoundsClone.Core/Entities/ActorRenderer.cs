@@ -8,7 +8,7 @@ namespace RoundsClone.Core.Entities;
 
 /// <summary>
 /// 角色躯干、定长竹节手脚、枪械与头顶弹匣指示器渲染器。
-/// 职责边界：专门负责将角色物理状态与 <see cref="ActorLimbAnimator"/> 解算出的角位移转换为屏幕上的程序化矢量图形。
+/// 职责边界：专门负责将角色物理状态与 <see cref="ActorLimbAnimator"/> 解算出的角位移及躯干后坐力偏移动画转换为屏幕上的程序化矢量图形。
 /// </summary>
 public static class ActorRenderer
 {
@@ -36,15 +36,17 @@ public static class ActorRenderer
             ? -MathF.Abs(MathF.Sin(anim.WalkCyclePhase)) * 2.0f * sizeRatio * anim.VisualSpeedFactor
             : 0f;
         float visualBodyRadius = actor.Radius * 0.78f;
-        Vector2 bodyPos = pos + new Vector2(0f, -actor.Radius * 0.22f + walkBobY);
 
-        // 固定手脚长度（无论跳跃或高速运动，弧长严格恒定不变）
+        // 躯干物理中心：叠加上半身独立后坐位移（射击时后退并自动回正）
+        Vector2 bodyPos = pos + anim.TorsoRecoilOffset + new Vector2(0f, -actor.Radius * 0.22f + walkBobY);
+
+        // 固定手脚竹节长度
         float legFixedLen = 14.5f * sizeRatio;
         float armFixedLen = 11.5f * sizeRatio;
         float limbStartW = 3.0f * sizeRatio;
         float limbEndW = 2.2f * sizeRatio;
 
-        // 1. 绘制身体下边缘锚定的黑色定长竹节双腿
+        // 1. 绘制身体下边缘锚定的黑色定长竹节双腿（高处落地压弯与静摩擦步态）
         Vector2 leftLegRoot = GetDeformedPerimeterPoint(actor, bodyPos, visualBodyRadius * 0.96f, MathHelper.PiOver2 + 0.34f);
         Vector2 rightLegRoot = GetDeformedPerimeterPoint(actor, bodyPos, visualBodyRadius * 0.96f, MathHelper.PiOver2 - 0.34f);
 
@@ -68,7 +70,7 @@ public static class ActorRenderer
 
         batcher.DrawFixedLengthBambooLimb(spriteBatch, offArmRoot, armFixedLen, offBaseAngle, anim.OffArmBendAngle, 2.8f * sizeRatio, 2.0f * sizeRatio, limbBlack, limbRim, 0.9f);
 
-        // 3. 绘制角色弹性球形身体（含 Squash & Stretch、内部高光与同步描边）
+        // 3. 绘制角色弹性球形身体（含 Squash & Stretch、高光与轮廓线）
         batcher.DrawDeformedCircle(
             spriteBatch,
             bodyPos,
@@ -101,7 +103,7 @@ public static class ActorRenderer
         // 4. 委托面部渲染器绘制五官与眼神
         ActorFaceRenderer.DrawEyesAndExpression(actor, batcher, spriteBatch, bodyPos, visualBodyRadius, sizeRatio, renderColor, outlineColor);
 
-        // 5. 绘制身体前侧边缘锚定的黑色定长竹节主手与非旋转换弹枪械
+        // 5. 绘制身体前侧边缘锚定的黑色定长竹节主手与矢量枪械
         float aimAngle = MathF.Atan2(currentAim.Y, currentAim.X);
         float mainEdgeAngle = aimAngle + aimSign * 0.18f;
         Vector2 mainArmRoot = GetDeformedPerimeterPoint(actor, bodyPos, visualBodyRadius * 0.96f, mainEdgeAngle);
@@ -208,7 +210,7 @@ public static class ActorRenderer
     }
 
     /// <summary>
-    /// 计算果冻形变椭圆身体边缘指定世界角度方向上的精确锚点坐标，确保手脚根部始终紧贴在身体外边缘。
+    /// 计算果冻形变椭圆身体边缘指定世界角度方向上的精确锚点坐标。
     /// </summary>
     private static Vector2 GetDeformedPerimeterPoint(Actor actor, Vector2 center, float baseRadius, float worldAngle)
     {

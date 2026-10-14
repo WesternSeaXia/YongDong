@@ -6,9 +6,9 @@ using RoundsClone.Core.Physics;
 namespace RoundsClone.Core.Entities;
 
 /// <summary>
-/// 角色定长竹节手脚与步态弹簧动画控制器。
-/// 职责边界：专门管理角色的步伐相位、呼吸律动、手部持枪后坐力弹簧，
-/// 以及双腿与双手的胡克定律角位移/角速度物理模拟（确保四肢弧长严格恒定，仅通过弯曲弧度表现受力与惯性）。
+/// 角色定长竹节手脚、躯干后坐弹簧与身体/脚物理分离控制器。
+/// 职责边界：专门解算双脚的地面静摩擦锚定、身体射击后坐微移与自适应回正弹簧、步态相位演进，
+/// 以及高处坠落双腿受压弯曲与定长竹节四肢二阶胡克定律角弹簧动力学。
 /// </summary>
 public class ActorLimbAnimator
 {
@@ -33,17 +33,35 @@ public class ActorLimbAnimator
     public float VisualMoveDir { get; private set; } = 1f;
 
     /// <summary>
+    /// 身体相对脚部的射击后坐/受力局部物理位移（静摩擦力下脚不动，身体后移并自动回正）。
+    /// </summary>
+    public Vector2 TorsoRecoilOffset => _torsoRecoilOffset;
+    private Vector2 _torsoRecoilOffset = Vector2.Zero;
+    private Vector2 _torsoRecoilVel = Vector2.Zero;
+
+    /// <summary>
     /// 主手射击后坐力回缩弹簧位移。
     /// </summary>
     public float HandRecoilSpring => _handRecoilSpring;
     private float _handRecoilSpring = 0f;
     private float _handRecoilVelocity = 0f;
 
-    // 上一帧线速度与瞄准角（用于求解躯干加速度与甩枪角速度，作为竹节手脚的惯性外力激励）
+    /// <summary>
+    /// 高处落地时双腿被身体重力压弯的外扩变形强度 (0.0 到 1.0)。
+    /// </summary>
+    public float HeavyLandBuckle => _heavyLandBuckle;
+    private float _heavyLandBuckle = 0f;
+    private float _heavyLandBuckleVel = 0f;
+
+    // 上一帧线速度与瞄准角
     private Vector2 _prevVelocity = Vector2.Zero;
     private float _prevAimAngle = 0f;
 
-    // 双腿与双手的受力弯曲角位移与角速度（仅改变弯曲角，绝不拉伸长度）
+    // 双脚静摩擦世界锚点记录（当角色着地且未主动大幅迈步时锁定脚掌位置）
+    private readonly Vector2[] _footPlantWorldPos = new Vector2[2];
+    private bool _feetPlanted = false;
+
+    // 双腿与双手受力弯曲角位移与角速度
     private readonly float[] _legBendAngle = new float[2];
     private readonly float[] _legBendAngularVel = new float[2];
     private float _mainArmBendAngle = 0f;
@@ -67,16 +85,21 @@ public class ActorLimbAnimator
     public float OffArmBendAngle => _offArmBendAngle;
 
     /// <summary>
-    /// 重置所有步态相位与手脚角弹簧状态（用于新回合开始）。
+    /// 重置所有步态相位与手脚角弹簧状态。
     /// </summary>
     public void Reset()
     {
         WalkCyclePhase = 0f;
         IdlePhase = 0f;
         VisualSpeedFactor = 0f;
+        _torsoRecoilOffset = Vector2.Zero;
+        _torsoRecoilVel = Vector2.Zero;
         _handRecoilSpring = 0f;
         _handRecoilVelocity = 0f;
+        _heavyLandBuckle = 0f;
+        _heavyLandBuckleVel = 0f;
         _prevVelocity = Vector2.Zero;
+        _feetPlanted = false;
         _legBendAngle[0] = _legBendAngle[1] = 0f;
         _legBendAngularVel[0] = _legBendAngularVel[1] = 0f;
         _mainArmBendAngle = _mainArmBendAngularVel = 0f;
@@ -84,11 +107,12 @@ public class ActorLimbAnimator
     }
 
     /// <summary>
-    /// 帧更新步态相位、躯干持续微幅形变以及四肢竹节弯曲角弹簧。
+    /// 帧更新步态相位、躯干后坐力回正弹簧、脚部静摩擦与四肢竹节角弹簧。
     /// </summary>
     public void Update(Actor actor, ControlInputState input, CollisionWorld? world, float dt)
     {
         var body = actor.Body;
+        bool isGrounded = body.IsGrounded || world == null;
 
         // 1. 累积行走步态相位与移动朝向
         bool isMovingHorizontally = MathF.Abs(input.MoveVector.X) > 0.05f;
@@ -97,11 +121,27 @@ public class ActorLimbAnimator
             float moveSpeed = world != null ? MathF.Abs(body.Velocity.X) : 240f * MathF.Abs(input.MoveVector.X);
             WalkCyclePhase += dt * MathF.Max(moveSpeed, 150f) * 0.052f;
             VisualMoveDir = MathF.Sign(input.MoveVector.X);
+            _feetPlanted = false; // 移动中解除静摩擦力锁定
         }
         else if (world != null && MathF.Abs(body.Velocity.X) > 20f)
         {
             WalkCyclePhase += dt * MathF.Abs(body.Velocity.X) * 0.045f;
             VisualMoveDir = MathF.Sign(body.Velocity.X);
+            _feetPlanted = false;
+        }
+        else if (isGrounded)
+        {
+            // 静止站立时：激活脚部静摩擦力地面锚定
+            if (!_feetPlanted)
+            {
+                _feetPlanted = true;
+                _footPlantWorldPos[0] = body.Position + new Vector2(-actor.Radius * 0.35f, actor.Radius);
+                _footPlantWorldPos[1] = body.Position + new Vector2(actor.Radius * 0.35f, actor.Radius);
+            }
+        }
+        else
+        {
+            _feetPlanted = false;
         }
 
         IdlePhase += dt * 3.8f;
@@ -112,8 +152,14 @@ public class ActorLimbAnimator
             : MathHelper.Clamp(MathF.Abs(input.MoveVector.X) * 1.4f, 0f, 0.85f);
         VisualSpeedFactor = MathHelper.Lerp(VisualSpeedFactor, targetSpeedFactor, MathHelper.Clamp(dt * 14f, 0f, 1f));
 
-        // 3. 更新躯干行走/呼吸/空中连续弹性形变
-        if (body.IsGrounded || world == null)
+        // 3. 躯干后坐力回正弹簧（射击时躯干后移，射击后在强恢复力作用下自动平滑回正）
+        _torsoRecoilOffset = MathHelper2D.SpringDamp2D(_torsoRecoilOffset, Vector2.Zero, ref _torsoRecoilVel, 260f, 16f, dt);
+
+        // 4. 高处坠落压弯弹簧恢复
+        _heavyLandBuckle = MathHelper2D.SpringDamp(_heavyLandBuckle, 0f, ref _heavyLandBuckleVel, 190f, 13f, dt);
+
+        // 5. 更新躯干呼吸/行走连续弹性形变
+        if (isGrounded)
         {
             if (VisualSpeedFactor > 0.08f)
             {
@@ -131,8 +177,8 @@ public class ActorLimbAnimator
             actor.Squash.SetContinuousWobble(airStretch);
         }
 
-        // 4. 更新手部后坐力弹簧与四肢竹节角弹簧
-        _handRecoilSpring = MathHelper2D.SpringDamp(_handRecoilSpring, 0f, ref _handRecoilVelocity, 240f, 14f, dt);
+        // 6. 更新手部射击后坐力弹簧与四肢竹节角弹簧
+        _handRecoilSpring = MathHelper2D.SpringDamp(_handRecoilSpring, 0f, ref _handRecoilVelocity, 260f, 16f, dt);
         UpdateBambooAngularSprings(actor, input, world, dt);
     }
 
@@ -146,7 +192,6 @@ public class ActorLimbAnimator
         float aimSign = currentAim.X >= 0f ? 1f : -1f;
         bool isGrounded = body.IsGrounded || world == null;
 
-        // 计算躯干瞬态加速度与瞄准转动角速度
         Vector2 effectiveVel = world != null ? body.Velocity : new Vector2(input.MoveVector.X * 240f, 0f);
         Vector2 rawAccel = (effectiveVel - _prevVelocity) / MathF.Max(dt, 0.002f);
         Vector2 bodyAccel = MathHelper2D.ClampLength(rawAccel, 9000f);
@@ -157,7 +202,10 @@ public class ActorLimbAnimator
         aimAngularVel = MathHelper.Clamp(aimAngularVel, -35f, 35f);
         _prevAimAngle = currentAimAngle;
 
-        // 1. 双腿竹节弯曲角弹簧更新（步态提膝弯曲 + 惯性弯曲）
+        // 躯干后坐位移对双腿带来的附加物理弯曲补偿（身体向后靠，腿部由于脚底静摩擦向前弓起）
+        float torsoRecoilFlex = -_torsoRecoilOffset.X * 0.065f;
+
+        // 1. 双腿竹节弯曲角弹簧更新
         for (int i = 0; i < 2; i++)
         {
             float phase = WalkCyclePhase + i * MathHelper.Pi;
@@ -167,8 +215,10 @@ public class ActorLimbAnimator
             if (isGrounded)
             {
                 float stepFlex = MathF.Sin(phase) * 0.72f * VisualSpeedFactor * VisualMoveDir;
-                float idleFlex = sideSign * 0.24f * (1f - VisualSpeedFactor);
-                targetLegBend = stepFlex + idleFlex;
+                float idleFlex = sideSign * 0.22f * (1f - VisualSpeedFactor);
+                // 叠加高处落地压弯与射击后坐受力
+                float buckleExtra = _heavyLandBuckle * (sideSign * 0.95f);
+                targetLegBend = stepFlex + idleFlex + torsoRecoilFlex + buckleExtra;
             }
             else
             {
@@ -178,17 +228,17 @@ public class ActorLimbAnimator
             }
 
             _legBendAngularVel[i] += (bodyAccel.X * 0.0032f + bodyAccel.Y * 0.0018f * sideSign) * dt;
-            _legBendAngle[i] = MathHelper2D.SpringDamp(_legBendAngle[i], targetLegBend, ref _legBendAngularVel[i], 215f, 7.8f, dt);
-            _legBendAngle[i] = MathHelper.Clamp(_legBendAngle[i], -1.25f, 1.25f);
+            _legBendAngle[i] = MathHelper2D.SpringDamp(_legBendAngle[i], targetLegBend, ref _legBendAngularVel[i], 225f, 8.4f, dt);
+            _legBendAngle[i] = MathHelper.Clamp(_legBendAngle[i], -1.35f, 1.35f);
         }
 
-        // 2. 主手竹节弯曲角弹簧更新（瞄准甩动 + 射击后坐弯曲 + 运动惯性）
+        // 2. 主手竹节弯曲角弹簧更新
         float targetMainBend = aimSign * 0.22f + MathF.Sin(IdlePhase) * 0.06f;
         _mainArmBendAngularVel += (-aimAngularVel * 0.45f + bodyAccel.Y * 0.0028f * aimSign) * dt;
-        _mainArmBendAngle = MathHelper2D.SpringDamp(_mainArmBendAngle, targetMainBend, ref _mainArmBendAngularVel, 230f, 8.2f, dt);
-        _mainArmBendAngle = MathHelper.Clamp(_mainArmBendAngle, -1.20f, 1.20f);
+        _mainArmBendAngle = MathHelper2D.SpringDamp(_mainArmBendAngle, targetMainBend, ref _mainArmBendAngularVel, 240f, 8.6f, dt);
+        _mainArmBendAngle = MathHelper.Clamp(_mainArmBendAngle, -1.25f, 1.25f);
 
-        // 3. 副手竹节弯曲角弹簧更新（步伐摆动弯曲 + 空中飘动弯曲）
+        // 3. 副手竹节弯曲角弹簧更新
         float targetOffBend;
         if (isGrounded)
         {
@@ -199,12 +249,33 @@ public class ActorLimbAnimator
             targetOffBend = -aimSign * (0.45f + MathHelper.Clamp(body.Velocity.Y * 0.0008f, -0.5f, 0.5f));
         }
         _offArmBendAngularVel += (-bodyAccel.X * 0.0030f - bodyAccel.Y * 0.0032f * aimSign) * dt;
-        _offArmBendAngle = MathHelper2D.SpringDamp(_offArmBendAngle, targetOffBend, ref _offArmBendAngularVel, 195f, 7.2f, dt);
+        _offArmBendAngle = MathHelper2D.SpringDamp(_offArmBendAngle, targetOffBend, ref _offArmBendAngularVel, 205f, 7.6f, dt);
         _offArmBendAngle = MathHelper.Clamp(_offArmBendAngle, -1.25f, 1.25f);
     }
 
     /// <summary>
-    /// 触发地面起跳时的四肢竹节向下弹性弯曲冲量。
+    /// 触发射击时的身体局部后坐冲量（脚掌因静摩擦锚定原地，身体向后微退并自动回正）。
+    /// </summary>
+    public void ApplyShootingRecoil(Vector2 recoilDir, float strength = 180f)
+    {
+        _torsoRecoilVel += recoilDir * strength;
+        _handRecoilVelocity += 14f;
+    }
+
+    /// <summary>
+    /// 触发高处极速落地时的强力撞击压弯冲量（身体把脚压弯）。
+    /// </summary>
+    public void OnHeavyFallImpact(float intensity, float aimSign)
+    {
+        _heavyLandBuckle += intensity;
+        _legBendAngularVel[0] += intensity * 42f;
+        _legBendAngularVel[1] -= intensity * 42f;
+        _mainArmBendAngularVel += aimSign * intensity * 26f;
+        _offArmBendAngularVel -= aimSign * intensity * 28f;
+    }
+
+    /// <summary>
+    /// 触发普通地面跳跃时的四肢弹簧弯曲。
     /// </summary>
     public void OnGroundJump(float aimSign, float strength = 1.0f)
     {
@@ -215,7 +286,7 @@ public class ActorLimbAnimator
     }
 
     /// <summary>
-    /// 触发贴墙蹬跳时的四肢竹节反向摆动弯曲冲量。
+    /// 触发贴墙蹬跳时的四肢弹簧弯曲。
     /// </summary>
     public void OnWallJump(float wallNormalX, float aimSign)
     {
@@ -226,11 +297,11 @@ public class ActorLimbAnimator
     }
 
     /// <summary>
-    /// 触发高处落地时的双腿外扩缓冲弯曲冲量。
+    /// 触发普通着陆缓冲。
     /// </summary>
     public void OnLandImpact(float landIntensity, float aimSign)
     {
-        float bendKick = landIntensity * 32f;
+        float bendKick = landIntensity * 28f;
         _legBendAngularVel[0] += bendKick;
         _legBendAngularVel[1] -= bendKick;
         _mainArmBendAngularVel += aimSign * bendKick * 0.7f;
@@ -238,28 +309,16 @@ public class ActorLimbAnimator
     }
 
     /// <summary>
-    /// 触发换弹完成上膛时的手臂震动反馈。
+    /// 换弹完成手臂上膛反馈。
     /// </summary>
     public void OnReloadComplete(float aimSign)
     {
-        _handRecoilVelocity -= 10f;
-        _mainArmBendAngularVel -= aimSign * 8.0f;
+        _handRecoilVelocity -= 9f;
+        _mainArmBendAngularVel -= aimSign * 7.5f;
     }
 
     /// <summary>
-    /// 触发主武器射击时的手部后坐回缩与四肢竹节震荡。
-    /// </summary>
-    public void OnShootRecoil(float aimSign, Vector2 recoilDir)
-    {
-        _handRecoilVelocity += 16f;
-        _mainArmBendAngularVel += aimSign * 14.5f;
-        _offArmBendAngularVel -= aimSign * 11.5f;
-        _legBendAngularVel[0] += recoilDir.X * 8.5f;
-        _legBendAngularVel[1] += recoilDir.X * 8.5f;
-    }
-
-    /// <summary>
-    /// 触发受击时的四肢惯性甩动弯曲。
+    /// 受击时的四肢惯性甩动弯曲。
     /// </summary>
     public void OnHitImpact(float hitSign)
     {

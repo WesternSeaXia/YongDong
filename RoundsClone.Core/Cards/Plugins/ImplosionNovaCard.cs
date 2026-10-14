@@ -8,7 +8,7 @@ namespace RoundsClone.Core.Cards;
 
 /// <summary>
 /// 黑洞引力技能卡插件。
-/// 职责边界：增加弹匣容量，并在子弹命中目标时产生指向爆心的强力引力拉扯冲量与电光坍缩特效。
+/// 职责边界：增加弹匣容量，在子弹命中目标时产生指向爆心的强力引力拉扯冲量与大范围紫白电光坍缩爆炸特效。
 /// </summary>
 public class ImplosionNovaCard : ICardPlugin
 {
@@ -30,6 +30,7 @@ public class ImplosionNovaCard : ICardPlugin
         Vector2 hitCenter = projectile.Body.Position;
         Vector2 pullDir = MathHelper2D.SafeNormalize(hitCenter - target.Body.Position);
         target.Body.ApplyImpulse(pullDir * 650f);
-        particles.EmitExplosion(hitCenter, 80f, ColorPalette.ElectricPurple, 18);
+        particles.EmitExplosion(hitCenter, 130f, ColorPalette.ElectricPurple, 34);
+        shake.AddTrauma(0.42f);
     }
 }

@@ -62,8 +62,15 @@ public class RoundsGame : Game
     protected override void Initialize()
     {
         Console.WriteLine("[RoundsGame] Initialize started");
+        GameSettings.Load();
         _viewport = new VirtualViewport();
-        _input = new InputManager();
+        _input = new InputManager
+        {
+            ShowVirtualControls = GameSettings.Current.ShowVirtualControls,
+            LeftStickJumpEnabled = GameSettings.Current.LeftStickJumpEnabled,
+            LeftStickControlsAim = GameSettings.Current.LeftStickControlsAim,
+            StickDeadzoneRatio = GameSettings.Current.StickDeadzoneRatio
+        };
 
         base.Initialize();
         Console.WriteLine("[RoundsGame] Initialize completed successfully");

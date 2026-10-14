@@ -10,7 +10,7 @@ namespace RoundsClone.Core.Entities;
 
 /// <summary>
 /// 纯力学驱动的程序化子弹弹丸实体。
-/// 支持反弹管线、分裂、范围爆炸、追踪引力与连锁状态附加。
+/// 职责边界：模拟子弹刚体弹道、反弹裂变、范围爆炸判定，以及具有方向感的流线型流线弹头与其克制微弱的淡雅拖尾渲染。
 /// </summary>
 public class Projectile
 {
@@ -81,16 +81,19 @@ public class Projectile
     public bool IsDestroyed { get; private set; } = false;
 
     /// <summary>
-    /// 子弹弹头半径。
+    /// 子弹截面基准半径。
     /// </summary>
-    public float Radius { get; set; } = 8f;
+    public float Radius { get; set; } = 5.2f;
 
     /// <summary>
-    /// 弹头基准色彩。
+    /// 弹头基准色彩（跟随发射者主题色）。
     /// </summary>
-    public Color BulletColor { get; set; } = Color.Yellow;
+    public Color BulletColor { get; set; } = ColorPalette.PlayerBlue;
 
-    private float _trailTimer = 0f;
+    // 历史位置轨迹记录，用于绘制微弱淡雅的短尾迹
+    private readonly List<Vector2> _trailHistory = new(8);
+    private float _trailSampleTimer = 0f;
+    private float _particleTimer = 0f;
 
     /// <summary>
     /// 创建力学子弹实体。
@@ -101,11 +104,11 @@ public class Projectile
         Damage = damage;
         BulletColor = color;
 
-        Body = new RigidBody2D(position, 0.2f)
+        Body = new RigidBody2D(position, 0.16f)
         {
             Velocity = initialVelocity,
-            Drag = 0.006f,               // 轻微空气风阻
-            GravityScale = 0.56f,        // 扎实沉重的弹道抛物下坠感
+            Drag = 0.005f,
+            GravityScale = 0.54f,
             FallGravityMultiplier = 1.15f,
             Restitution = 0.95f
         };
@@ -115,10 +118,12 @@ public class Projectile
             BouncinessOverride = 0.95f,
             IsProjectile = true
         };
+
+        _trailHistory.Add(position);
     }
 
     /// <summary>
-    /// 帧更新子弹物理轨迹与粒子尾迹。
+    /// 帧更新子弹物理轨迹与克制的尾迹采样。
     /// </summary>
     public void Update(float dt, ParticleSystem particles)
     {
@@ -131,12 +136,24 @@ public class Projectile
             return;
         }
 
-        // 发射尾焰与飞行光带微粒
-        _trailTimer += dt;
-        if (_trailTimer >= 0.02f)
+        // 1. 低频采样简短历史节点（仅保留 4 个点，极短极淡的微弱拖尾）
+        _trailSampleTimer += dt;
+        if (_trailSampleTimer >= 0.024f)
         {
-            _trailTimer = 0f;
-            particles.EmitDashTrail(Body.Position, Body.Velocity * 0.2f, BulletColor);
+            _trailSampleTimer = 0f;
+            _trailHistory.Add(Body.Position);
+            if (_trailHistory.Count > 4)
+            {
+                _trailHistory.RemoveAt(0);
+            }
+        }
+
+        // 2. 降低尾焰粒子喷发频率，避免拖尾视觉喧宾夺主
+        _particleTimer += dt;
+        if (_particleTimer >= 0.08f)
+        {
+            _particleTimer = 0f;
+            particles.EmitProjectileTrail(Body.Position, Body.Velocity, BulletColor);
         }
     }
 
@@ -164,17 +181,45 @@ public class Projectile
     }
 
     /// <summary>
-    /// 渲染程序化发光弹丸。
+    /// 渲染流线型细长弹头与克制微弱的短拖尾。
     /// </summary>
     public void Draw(ShapeBatcher batcher, SpriteBatch spriteBatch)
     {
         if (IsDestroyed) return;
 
-        // 核心白亮，外圈带有霓虹发光光晕
-        batcher.DrawGlowCircle(spriteBatch, Body.Position, Radius, Color.White, BulletColor);
+        Vector2 vel = Body.Velocity;
+        Vector2 dir = MathHelper2D.SafeNormalize(vel);
+        if (dir == Vector2.Zero) dir = Vector2.UnitX;
 
-        // 前端微小导向高光
-        Vector2 headOffset = MathHelper2D.SafeNormalize(Body.Velocity) * (Radius * 0.4f);
-        batcher.DrawFilledCircle(spriteBatch, Body.Position + headOffset, Radius * 0.35f, Color.White);
+        // 1. 绘制极淡、微弱的细线短拖尾
+        int count = _trailHistory.Count;
+        for (int i = 0; i < count - 1; i++)
+        {
+            float t = (float)(i + 1) / count;
+            float alpha = t * 0.28f; // 低不透明度
+            float trailWidth = MathHelper.Lerp(0.8f, 2.2f, t);
+            Color trailColor = BulletColor * alpha;
+
+            batcher.DrawLine(spriteBatch, _trailHistory[i], _trailHistory[i + 1], trailColor, trailWidth);
+        }
+
+        if (count > 0)
+        {
+            batcher.DrawLine(spriteBatch, _trailHistory[^1], Body.Position, BulletColor * 0.35f, 2.4f);
+        }
+
+        // 2. 绘制流线型细长子弹外形（沿飞行方向延伸的流线胶囊弹头，消除纯圆球感）
+        float halfLen = Radius * 1.5f; // 约 7.8 像素
+        Vector2 tipPos = Body.Position + dir * halfLen;
+        Vector2 tailPos = Body.Position - dir * (halfLen * 0.8f);
+
+        // 外层弹壳（角色主题色）
+        batcher.DrawLine(spriteBatch, tailPos, tipPos, BulletColor, Radius * 1.25f);
+        batcher.DrawFilledCircle(spriteBatch, tailPos, Radius * 0.55f, BulletColor);
+
+        // 内部炽热白芯
+        Vector2 coreTail = Body.Position - dir * (halfLen * 0.4f);
+        batcher.DrawLine(spriteBatch, coreTail, tipPos, Color.White, Radius * 0.65f);
+        batcher.DrawFilledCircle(spriteBatch, tipPos, Radius * 0.40f, Color.White);
     }
 }

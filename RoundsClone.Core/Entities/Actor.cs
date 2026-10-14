@@ -12,7 +12,7 @@ namespace RoundsClone.Core.Entities;
 
 /// <summary>
 /// 游戏核心角色实体。
-/// 职责边界：负责维护角色的战斗属性数值、刚体与碰撞体绑定、矢量力移动与贴墙跳跃机制、武器换弹射击及受击状态结算；
+/// 职责边界：负责维护角色的战斗属性数值、刚体与碰撞体绑定、矢量力移动与贴墙跳跃机制、武器换弹射击、高空坠落撞击伤害及受击状态结算；
 /// 四肢竹节弹簧动画委托给 <see cref="ActorLimbAnimator"/>，外观与五官绘制委托给 <see cref="ActorRenderer"/>。
 /// </summary>
 public class Actor
@@ -87,7 +87,12 @@ public class Actor
     public float CurrentFireCooldown { get; set; } = 0f;
     public float BulletDamage { get; set; } = 28f;
     public float BulletSpeed { get; set; } = 1040f;
-    public float RecoilImpulse { get; set; } = 320f;
+
+    /// <summary>
+    /// 初始子弹后坐力冲量（已调低以避免过度震退，配合身体/脚物理分离回正）。
+    /// </summary>
+    public float RecoilImpulse { get; set; } = 130f;
+
     public int BulletBounces { get; set; } = 0;
     public int BulletsPerShot { get; set; } = 1;
     public float BulletSpread { get; set; } = 0.05f;
@@ -148,7 +153,6 @@ public class Actor
 
     /// <summary>
     /// 根据当前最大生命值动态重新计算角色体型、物理质量、移动推力与跳跃冲量。
-    /// 生命值越高，体积越大、质量越沉、移动越慢、跳跃高度越低。
     /// </summary>
     public void RecalculateHealthScaling()
     {
@@ -188,8 +192,8 @@ public class Actor
             Body.AddForce(new Vector2(input.MoveVector.X * MoveForce, 0f));
         }
 
-        // 3. 更新跳跃缓冲、土狼时间、贴墙滑行与落地缓冲
-        UpdateJumpAndWallSlide(dt, input, particles);
+        // 3. 更新跳跃缓冲、土狼时间、贴墙滑行与坠落缓冲/撞击伤害
+        UpdateJumpAndWallSlide(dt, input, particles, shake);
 
         // 4. 更新主武器射击与弹匣换弹
         UpdateWeaponAndReload(dt, input, particles, shake, onSpawnProjectile);
@@ -216,7 +220,7 @@ public class Actor
         }
     }
 
-    private void UpdateJumpAndWallSlide(float dt, ControlInputState input, ParticleSystem particles)
+    private void UpdateJumpAndWallSlide(float dt, ControlInputState input, ParticleSystem particles, ScreenShake shake)
     {
         bool jumpJustPressed = input.IsJumpDown && !_prevJumpDown;
         _prevJumpDown = input.IsJumpDown;
@@ -298,13 +302,28 @@ public class Actor
             particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
         }
 
-        // 落地冲击弹性缓冲
+        // 落地冲击判定：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
         if (Body.IsGrounded && !_wasGroundedLastFrame && _prevFallVelocity > 150f)
         {
-            float landIntensity = MathHelper.Clamp(_prevFallVelocity / 1600f, 0.14f, 0.34f);
-            Squash.ApplySquash(Vector2.UnitY, landIntensity);
-            LimbAnimator.OnLandImpact(landIntensity, aimSign);
-            particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 7);
+            if (_prevFallVelocity > 1400f)
+            {
+                // 仅在超高空极速坠落或向下强力下砸时（阈值 1400px/s），才触发身体重压受挫伤害与深蹲压弯
+                float excessSpeed = _prevFallVelocity - 1400f;
+                float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
+                TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);
+
+                float buckleIntensity = MathHelper.Clamp(excessSpeed / 600f, 0.40f, 1.10f);
+                Squash.ApplySquash(Vector2.UnitY, MathHelper.Clamp(buckleIntensity * 0.40f, 0.25f, 0.55f));
+                LimbAnimator.OnHeavyFallImpact(buckleIntensity, aimSign);
+                particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 10);
+            }
+            else
+            {
+                float landIntensity = MathHelper.Clamp(_prevFallVelocity / 1600f, 0.12f, 0.30f);
+                Squash.ApplySquash(Vector2.UnitY, landIntensity);
+                LimbAnimator.OnLandImpact(landIntensity, aimSign);
+                particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
+            }
         }
         _wasGroundedLastFrame = Body.IsGrounded;
         _prevFallVelocity = Body.Velocity.Y;
@@ -353,7 +372,7 @@ public class Actor
     }
 
     /// <summary>
-    /// 执行一次射击，消耗弹匣子弹、施加反冲力并派生子弹实体。
+    /// 执行一次射击：消耗弹匣子弹、激发脚底静摩擦与躯干后坐位移、自动回正并派生子弹实体。
     /// </summary>
     private void Shoot(ParticleSystem particles, ScreenShake shake, Action<Projectile> onSpawnProjectile)
     {
@@ -364,14 +383,24 @@ public class Actor
             ReloadTimer = ReloadDuration;
         }
 
-        float aimSign = _currentAim.X >= 0f ? 1f : -1f;
         Vector2 recoilDir = -_currentAim;
-        Body.ApplyImpulse(recoilDir * RecoilImpulse);
-        Squash.ApplySquash(recoilDir, 0.24f);
-        LimbAnimator.OnShootRecoil(aimSign, recoilDir);
 
-        particles.EmitHitSparks(Body.Position + _currentAim * (Radius + 18f), _currentAim, ThemeColor, 8);
-        shake.AddTrauma(0.18f);
+        // 身体与脚的物理分离：脚底静摩擦固定，躯干后退并在射击完成后自动平滑回正
+        LimbAnimator.ApplyShootingRecoil(recoilDir, 160f);
+
+        if (Body.IsGrounded)
+        {
+            // 着地时脚掌静摩擦力吸收大部分冲量，避免整个人生硬后滑
+            Body.ApplyImpulse(recoilDir * (RecoilImpulse * 0.40f));
+        }
+        else
+        {
+            Body.ApplyImpulse(recoilDir * RecoilImpulse);
+        }
+
+        Squash.ApplySquash(recoilDir, 0.20f);
+        particles.EmitHitSparks(Body.Position + _currentAim * (Radius + 16f), _currentAim, ThemeColor, 7);
+        shake.AddTrauma(0.14f);
 
         float baseAngle = MathF.Atan2(_currentAim.Y, _currentAim.X);
         float step = BulletsPerShot > 1 ? BulletSpread / (BulletsPerShot - 1) : 0f;
@@ -382,7 +411,7 @@ public class Actor
             float angle = startAngle + i * step + (float)(Random.Shared.NextDouble() - 0.5) * 0.04f;
             Vector2 dir = new(MathF.Cos(angle), MathF.Sin(angle));
 
-            Vector2 spawnPos = Body.Position + dir * (Radius + 18f);
+            Vector2 spawnPos = Body.Position + dir * (Radius + 16f);
             Vector2 bulletVel = dir * BulletSpeed;
 
             var proj = new Projectile(this, spawnPos, bulletVel, BulletDamage, ThemeColor)
@@ -423,8 +452,14 @@ public class Actor
             LimbAnimator.OnHitImpact(hitSign);
         }
 
-        particles.EmitHitSparks(Body.Position, -MathHelper2D.SafeNormalize(hitForce), ThemeColor, 14);
-        shake.AddTrauma(0.25f);
+        particles.EmitHitSparks(Body.Position, -MathHelper2D.SafeNormalize(hitForce), ThemeColor, 12);
+
+        // 受伤震屏优化：低伤害极轻微或不晃动，高伤害适度沉稳
+        if (amount > 8f)
+        {
+            float trauma = MathHelper.Clamp((amount - 8f) / 80f * 0.16f, 0.02f, 0.18f);
+            shake.AddTrauma(trauma);
+        }
     }
 
     /// <summary>

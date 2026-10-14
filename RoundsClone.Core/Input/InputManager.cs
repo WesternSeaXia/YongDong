@@ -332,8 +332,9 @@ public class InputManager
 
     /// <summary>
     /// 获取整合了键盘、鼠标与虚拟触控后的综合玩家输入意图。
+    /// 支持传入摄像机视口逆变换委托以确保动态摄像机缩放平移下鼠标准星的世界坐标精确对齐。
     /// </summary>
-    public ControlInputState GetPlayerInputState(Actor player)
+    public ControlInputState GetPlayerInputState(Actor player, Func<Vector2, Vector2>? screenToWorld = null)
     {
         ControlInputState input = default;
         float deadzoneRadius = StickRadius * StickDeadzoneRatio;
@@ -364,7 +365,9 @@ public class InputManager
                            _leftKnobOffset.Y < -StickRadius * 0.50f;
         input.IsJumpDown = jumpKey || _jumpButtonPressed || stickUpJump;
 
-        // 3. 瞄准方向与射击
+        // 3. 瞄准方向与射击（计算鼠标在世界空间中的准确坐标）
+        Vector2 mouseWorldPos = screenToWorld != null ? screenToWorld(VirtualMousePosition) : VirtualMousePosition;
+
         if (LeftStickControlsAim)
         {
             if (_leftStickActive && _leftKnobOffset.Length() > deadzoneRadius)
@@ -379,7 +382,7 @@ public class InputManager
             }
             else
             {
-                Vector2 aimDelta = VirtualMousePosition - player.Body.Position;
+                Vector2 aimDelta = mouseWorldPos - player.Body.Position;
                 input.AimVector = MathHelper2D.SafeNormalize(aimDelta);
                 input.IsFireDown = _currMouse.LeftButton == ButtonState.Pressed && _mouseLockedStick == 0 && !_secondaryButtonPressed && !_jumpButtonPressed;
             }
@@ -399,7 +402,7 @@ public class InputManager
             }
             else
             {
-                Vector2 aimDelta = VirtualMousePosition - player.Body.Position;
+                Vector2 aimDelta = mouseWorldPos - player.Body.Position;
                 input.AimVector = MathHelper2D.SafeNormalize(aimDelta);
                 input.IsFireDown = _currMouse.LeftButton == ButtonState.Pressed && _mouseLockedStick == 0 && !_secondaryButtonPressed && !_jumpButtonPressed;
             }

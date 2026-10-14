@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using Microsoft.Xna.Framework;
 
 namespace RoundsClone.Core.Graphics;
 
 /// <summary>
 /// 创伤衰减屏幕震屏系统 (Trauma-based Screen Shake)。
-/// 物理学非线性平方响应模型，呈现强烈的爆破与受击打击感。
+/// 职责边界：管理战局打击与爆炸产生的适度屏幕抖动，经过非线性平方阻尼衰减，避免过度摇晃导致眩晕。
 /// </summary>
 public class ScreenShake
 {
@@ -44,13 +44,13 @@ public class ScreenShake
     {
         if (_trauma > 0f)
         {
-            // 创伤线性衰减
-            _trauma = Math.Max(0f, _trauma - dt * 1.5f);
+            // 创伤适度加速衰减，快速恢复平稳
+            _trauma = Math.Max(0f, _trauma - dt * 2.2f);
 
-            // 非线性平方响应：低震动平缓，高创伤剧烈
+            // 非线性平方响应：低创伤几乎无感，高爆破沉稳有力
             float shake = _trauma * _trauma;
-            float maxOffset = 28f;
-            float maxAngle = 0.045f;
+            float maxOffset = 13f; // 由原本 28f 大幅降低，消除剧烈眩晕感
+            float maxAngle = 0.015f; // 由 0.045f 降低，保持视野水平稳定
 
             OffsetX = (float)(_random.NextDouble() * 2.0 - 1.0) * maxOffset * shake;
             OffsetY = (float)(_random.NextDouble() * 2.0 - 1.0) * maxOffset * shake;
