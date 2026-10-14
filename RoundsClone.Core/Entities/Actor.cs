@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -86,12 +86,12 @@ public class Actor
     public float FireRateCooldown { get; set; } = 0.35f;
     public float CurrentFireCooldown { get; set; } = 0f;
     public float BulletDamage { get; set; } = 28f;
-    public float BulletSpeed { get; set; } = 1040f;
+    public float BulletSpeed { get; set; } = 1200f;
 
     /// <summary>
     /// 初始子弹后坐力冲量（已调低以避免过度震退，配合身体/脚物理分离回正）。
     /// </summary>
-    public float RecoilImpulse { get; set; } = 130f;
+    public float RecoilImpulse { get; set; } = 100f;
 
     public int BulletBounces { get; set; } = 0;
     public int BulletsPerShot { get; set; } = 1;
@@ -245,7 +245,7 @@ public class Actor
         IsWallSliding = Body.IsTouchingWall && !Body.IsGrounded;
         if (IsWallSliding && Body.Velocity.Y > 0f)
         {
-            const float maxSlideSpeed = 175f;
+            const float maxSlideSpeed = 60f;
             if (Body.Velocity.Y > maxSlideSpeed)
             {
                 Body.Velocity = new Vector2(Body.Velocity.X, maxSlideSpeed);
@@ -276,7 +276,7 @@ public class Actor
             }
             else if (_wallCoyoteTimer > 0f && _lastWallNormal != Vector2.Zero)
             {
-                float wallKickX = _lastWallNormal.X * 720f;
+                float wallKickX = _lastWallNormal.X * 300f;
                 float wallJumpY = -JumpImpulse * 0.94f;
 
                 Body.Velocity = new Vector2(wallKickX, wallJumpY);
@@ -305,10 +305,10 @@ public class Actor
         // 落地冲击判定：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
         if (Body.IsGrounded && !_wasGroundedLastFrame && _prevFallVelocity > 150f)
         {
-            if (_prevFallVelocity > 1400f)
+            if (_prevFallVelocity > 1600f)
             {
                 // 仅在超高空极速坠落或向下强力下砸时（阈值 1400px/s），才触发身体重压受挫伤害与深蹲压弯
-                float excessSpeed = _prevFallVelocity - 1400f;
+                float excessSpeed = _prevFallVelocity - 1600f;
                 float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
                 TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);
 

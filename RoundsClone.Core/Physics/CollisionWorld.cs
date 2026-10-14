@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using RoundsClone.Core.Common;
@@ -14,9 +14,9 @@ public class CollisionWorld
     private readonly List<Collider> _colliders = new();
 
     /// <summary>
-    /// 全局重力场矢量 (向下 2600 像素/秒²，提供扎实沉稳的下落手感)。
+    /// 全局重力场矢量 (向下 3500 像素/秒²，提供扎实沉稳的下落手感)。
     /// </summary>
-    public Vector2 Gravity { get; set; } = new(0f, 2600f);
+    public Vector2 Gravity { get; set; } = new(0f, 4000f);
 
     /// <summary>
     /// 注册一个碰撞体到物理世界。
