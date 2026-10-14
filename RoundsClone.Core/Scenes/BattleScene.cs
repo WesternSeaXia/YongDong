@@ -118,7 +118,10 @@ public class BattleScene : IScene
         // 3. 动态摄像机追踪平滑更新
         _camera.Update(_player, _ai, dt);
 
-        // 4. 物理世界模拟步进与碰撞判定
+        // 3.5. 更新地图组件（运动平台先计算出本帧位移与速度）
+        _map.Update(dt, _world);
+
+        // 4. 物理世界模拟步进与碰撞判定（平台在此速度下与站立角色接触，带动角色平滑跟随位移）
         _world.Step(dt, OnPhysicsCollision);
 
         // 5. 注册新派生子弹
@@ -217,6 +220,22 @@ public class BattleScene : IScene
     {
         CheckProjectileCollision(m.ColliderA, m.ColliderB, m);
         CheckProjectileCollision(m.ColliderB, m.ColliderA, m);
+
+        CheckHazardCollision(m.ColliderA, m.ColliderB, m);
+        CheckHazardCollision(m.ColliderB, m.ColliderA, m);
+    }
+
+    private void CheckHazardCollision(Collider actorCol, Collider otherCol, CollisionManifold m)
+    {
+        Actor? actor = (actorCol.Body == _player.Body) ? _player : (actorCol.Body == _ai.Body ? _ai : null);
+        if (actor == null || actor.IsDead || actor.IsInvulnerable) return;
+
+        var terrain = _map.TerrainObjects.Find(t => t.Collider == otherCol);
+        if (terrain != null && terrain.Style == TerrainStyle.HazardSpike)
+        {
+            Vector2 spikeForce = -m.Normal * 450f;
+            actor.TakeDamage(18f, null, spikeForce, _manager.Particles, _manager.Shake);
+        }
     }
 
     private void CheckProjectileCollision(Collider maybeProjCol, Collider otherCol, CollisionManifold m)
@@ -224,8 +243,58 @@ public class BattleScene : IScene
         Projectile? proj = _projectiles.Find(p => p.Collider == maybeProjCol && !p.IsDestroyed);
         if (proj == null) return;
 
-        // 1. 子弹撞击墙体
-        if (otherCol is BoxCollider)
+        // 1. 子弹命中角色
+        if (otherCol is CircleCollider cc && (cc.Body == _player.Body || cc.Body == _ai.Body))
+        {
+            Actor? hitTarget = (cc.Body == _player.Body) ? _player : _ai;
+            if (hitTarget != proj.Owner && !hitTarget.IsInvulnerable)
+            {
+                Vector2 hitForce = MathHelper2D.SafeNormalize(proj.Body.Velocity) * proj.KnockbackImpulse;
+                hitTarget.TakeDamage(proj.Damage, proj.Owner, hitForce, _manager.Particles, _manager.Shake);
+
+                TriggerProjectileImpact(proj, hitTarget, m);
+                proj.Destroy();
+            }
+            return;
+        }
+
+        // 2. 子弹撞击地形（支持矩形、多边形、圆形、动态物理箱与可破坏掩体）
+        var hitTerrain = _map.TerrainObjects.Find(t => t.Collider == otherCol);
+        if (hitTerrain != null)
+        {
+            // 动态物理箱受子弹强力物理冲量驱动（大幅推动并引起链条摆动）
+            if (!hitTerrain.IsStatic)
+            {
+                Vector2 hitImpulse = MathHelper2D.SafeNormalize(proj.Body.Velocity) * 380f;
+                hitTerrain.Body.ApplyImpulse(hitImpulse);
+            }
+
+            // 可破坏地形扣减生命值
+            if (hitTerrain.IsDestructible)
+            {
+                hitTerrain.TakeDamage(proj.Damage, _manager.Particles, _manager.Shake);
+            }
+
+            if (proj.RemainingBounces > 0)
+            {
+                proj.OnBounce(m.Normal);
+                foreach (var card in proj.Owner.AppliedCards)
+                {
+                    card.OnProjectileBounce(proj, m, SpawnProjectile, _manager.Particles);
+                }
+                _manager.Particles.EmitHitSparks(m.ContactPoint, m.Normal, proj.BulletColor, 6);
+            }
+            else
+            {
+                TriggerProjectileImpact(proj, null, m);
+                _manager.Particles.EmitHitSparks(m.ContactPoint, m.Normal, proj.BulletColor, 8);
+                proj.Destroy();
+            }
+            return;
+        }
+
+        // 3. 子弹撞击默认外墙与边界
+        if (otherCol is BoxCollider or PolygonCollider)
         {
             if (proj.RemainingBounces > 0)
             {
@@ -238,25 +307,67 @@ public class BattleScene : IScene
             }
             else
             {
+                TriggerProjectileImpact(proj, null, m);
                 _manager.Particles.EmitHitSparks(m.ContactPoint, m.Normal, proj.BulletColor, 8);
                 proj.Destroy();
             }
         }
-        // 2. 子弹命中角色
-        else if (otherCol is CircleCollider cc)
+    }
+
+    /// <summary>
+    /// 当子弹最终命中任何物体（包括角色身体、地形方块、可破坏砖块与外墙）时统一触发引力黑洞与范围爆破等卡牌连锁效果。
+    /// </summary>
+    private void TriggerProjectileImpact(Projectile proj, Actor? hitTarget, CollisionManifold m)
+    {
+        Vector2 impactPos = proj.Body.Position;
+
+        // 1. 触发所有已挂载卡牌的 OnProjectileHit 拦截器
+        foreach (var card in proj.Owner.AppliedCards)
         {
-            Actor? hitTarget = (cc.Body == _player.Body) ? _player : (cc.Body == _ai.Body ? _ai : null);
-            if (hitTarget != null && hitTarget != proj.Owner && !hitTarget.IsInvulnerable)
+            card.OnProjectileHit(proj, hitTarget, m, _manager.Particles, _manager.Shake);
+        }
+
+        // 2. 黑洞引力坍缩拉扯（命中角色或地形均触发，将范围内所有活动角色吸向爆心）
+        if (proj.Owner.AppliedCards.Exists(c => c is ImplosionNovaCard) || proj.Owner.ImplosionBullets)
+        {
+            PullActorTowardsImpact(impactPos, _player, 640f);
+            PullActorTowardsImpact(impactPos, _ai, 640f);
+        }
+
+        // 3. 范围爆破冲击波溅射伤害（若装备集束爆破或具备爆炸属性，产生真实范围杀伤）
+        float splashRadius = MathF.Max(proj.ExplosionRadius, proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard) ? 140f : 0f);
+        if (splashRadius > 0f)
+        {
+            ApplySplashDamage(proj, impactPos, splashRadius, hitTarget);
+        }
+    }
+
+    private void PullActorTowardsImpact(Vector2 impactPos, Actor actor, float maxImpulse)
+    {
+        if (actor.IsDead) return;
+        float dist = Vector2.Distance(impactPos, actor.Body.Position);
+        if (dist < 420f && dist > 12f)
+        {
+            float falloff = 1f - (dist / 420f);
+            Vector2 pullDir = MathHelper2D.SafeNormalize(impactPos - actor.Body.Position);
+            actor.Body.ApplyImpulse(pullDir * (maxImpulse * falloff));
+        }
+    }
+
+    private void ApplySplashDamage(Projectile proj, Vector2 impactPos, float radius, Actor? directHitTarget)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            var actor = (i == 0) ? _player : _ai;
+            if (actor.IsDead || actor == proj.Owner || actor == directHitTarget || actor.IsInvulnerable) continue;
+
+            float dist = Vector2.Distance(impactPos, actor.Body.Position);
+            if (dist < radius)
             {
-                Vector2 hitForce = MathHelper2D.SafeNormalize(proj.Body.Velocity) * proj.KnockbackImpulse;
-                hitTarget.TakeDamage(proj.Damage, proj.Owner, hitForce, _manager.Particles, _manager.Shake);
-
-                foreach (var card in proj.Owner.AppliedCards)
-                {
-                    card.OnProjectileHit(proj, hitTarget, m, _manager.Particles, _manager.Shake);
-                }
-
-                proj.Destroy();
+                float factor = 1f - (dist / radius);
+                float splashDamage = proj.Damage * 0.65f * factor;
+                Vector2 blastForce = MathHelper2D.SafeNormalize(actor.Body.Position - impactPos) * (proj.KnockbackImpulse * 0.8f * factor);
+                actor.TakeDamage(splashDamage, proj.Owner, blastForce, _manager.Particles, _manager.Shake);
             }
         }
     }

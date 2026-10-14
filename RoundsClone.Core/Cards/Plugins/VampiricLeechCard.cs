@@ -26,9 +26,9 @@ public class VampiricLeechCard : ICardPlugin
         actor.RecalculateHealthScaling();
     }
 
-    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
-        if (projectile.Owner != null && !projectile.Owner.IsDead)
+        if (target != null && projectile.Owner != null && !projectile.Owner.IsDead)
         {
             float heal = projectile.Damage * 0.30f;
             projectile.Owner.CurrentHealth = MathF.Min(projectile.Owner.MaxHealth, projectile.Owner.CurrentHealth + heal);

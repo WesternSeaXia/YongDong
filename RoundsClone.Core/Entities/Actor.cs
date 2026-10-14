@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -305,9 +305,9 @@ public class Actor
         // 落地冲击判定：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
         if (Body.IsGrounded && !_wasGroundedLastFrame && _prevFallVelocity > 150f)
         {
-            if (_prevFallVelocity > 1600f)
+            if (_prevFallVelocity > 1600f && !Body.IsOnBouncySurface)
             {
-                // 仅在超高空极速坠落或向下强力下砸时（阈值 1400px/s），才触发身体重压受挫伤害与深蹲压弯
+                // 仅在超高空极速坠落或向下强力下砸时，且非高弹蹦床时，才触发身体重压受挫伤害与深蹲压弯
                 float excessSpeed = _prevFallVelocity - 1600f;
                 float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
                 TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);

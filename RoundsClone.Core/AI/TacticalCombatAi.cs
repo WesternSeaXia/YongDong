@@ -62,7 +62,7 @@ public sealed class TacticalCombatAi : IAiBrain
 
         // 3. 障碍感知与智能跳跃 / 贴墙跳
         Vector2 forwardRay = new(moveDirX > 0 ? 1f : -1f, 0f);
-        var hit = world.Raycast(selfPos, forwardRay, 60f);
+        var hit = world.Raycast(selfPos + forwardRay * (self.Radius + 4f), forwardRay, 60f, self.Collider);
         if (hit.HasHit && self.Body.IsGrounded && _jumpCooldown <= 0f)
         {
             input.IsJumpDown = true;
@@ -109,8 +109,8 @@ public sealed class TacticalCombatAi : IAiBrain
         }
 
         // 5. 武器开火判定 (视线无遮挡且处于有效射程内即扣动扳机)
-        var losCheck = world.Raycast(selfPos, aimDirection, distToTarget);
-        bool hasClearShot = !losCheck.HasHit || losCheck.Distance >= distToTarget - 40f;
+        var losCheck = world.Raycast(selfPos + aimDirection * (self.Radius + 4f), aimDirection, distToTarget, self.Collider);
+        bool hasClearShot = !losCheck.HasHit || losCheck.Distance >= distToTarget - 50f;
 
         if (hasClearShot && distToTarget < 1200f)
         {

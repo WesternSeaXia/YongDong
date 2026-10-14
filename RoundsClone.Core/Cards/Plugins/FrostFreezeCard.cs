@@ -23,9 +23,16 @@ public class FrostFreezeCard : ICardPlugin
         actor.ReloadDuration *= 0.85f;
     }
 
-    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
-        target.Body.Velocity *= 0.5f;
-        particles.EmitHitSparks(target.Body.Position, Vector2.UnitY, ColorPalette.FreezeCyan, 15);
+        if (target != null)
+        {
+            target.Body.Velocity *= 0.5f;
+            particles.EmitHitSparks(target.Body.Position, Vector2.UnitY, ColorPalette.FreezeCyan, 15);
+        }
+        else
+        {
+            particles.EmitHitSparks(projectile.Body.Position, manifold.Normal, ColorPalette.FreezeCyan, 8);
+        }
     }
 }

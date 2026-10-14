@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RoundsClone.Core.Common;
@@ -33,7 +33,7 @@ public static class ActorRenderer
         float moveDir = anim.VisualSpeedFactor > 0.08f ? anim.VisualMoveDir : aimSign;
 
         float walkBobY = (body.IsGrounded || MathF.Abs(body.Velocity.Y) < 10f)
-            ? -MathF.Abs(MathF.Sin(anim.WalkCyclePhase)) * 2.0f * sizeRatio * anim.VisualSpeedFactor
+            ? -MathF.Abs(MathF.Sin(anim.WalkCyclePhase)) * 7.0f * sizeRatio * anim.VisualSpeedFactor
             : 0f;
         float visualBodyRadius = actor.Radius * 0.78f;
 

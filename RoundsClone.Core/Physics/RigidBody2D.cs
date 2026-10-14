@@ -60,6 +60,21 @@ public class RigidBody2D
     public bool IsGrounded { get; set; }
 
     /// <summary>
+    /// 是否正落在高弹性反弹构件（弹跳床/橡胶球）上，免受坠落撞击伤害。
+    /// </summary>
+    public bool IsOnBouncySurface { get; set; }
+
+    /// <summary>
+    /// 站立其上的地面/运动平台当前物理移动速度。
+    /// </summary>
+    public Vector2 GroundVelocity { get; set; } = Vector2.Zero;
+
+    /// <summary>
+    /// 承托站立的地面刚体。
+    /// </summary>
+    public RigidBody2D? GroundBody { get; set; }
+
+    /// <summary>
     /// 是否接触垂直墙壁（左墙或右墙）。
     /// </summary>
     public bool IsTouchingWall { get; set; }

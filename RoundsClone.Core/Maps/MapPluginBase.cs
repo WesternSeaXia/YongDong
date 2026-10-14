@@ -50,9 +50,9 @@ public abstract class MapPluginBase : IMapPlugin
         int w = VirtualViewport.VirtualWidth;
         int h = VirtualViewport.VirtualHeight;
 
-        map.SolidWalls.Add(new Rectangle(0, 0, w, thickness));             // 顶部天花板
-        map.SolidWalls.Add(new Rectangle(0, h - thickness, w, thickness)); // 底部地面
-        map.SolidWalls.Add(new Rectangle(0, 0, thickness, h));             // 左侧外墙
-        map.SolidWalls.Add(new Rectangle(w - thickness, 0, thickness, h)); // 右侧外墙
+        map.AddBox(new Rectangle(0, 0, w, thickness), TerrainStyle.SolidMetal);             // 顶部天花板
+        map.AddBox(new Rectangle(0, h - thickness, w, thickness), TerrainStyle.SolidMetal); // 底部地面
+        map.AddBox(new Rectangle(0, 0, thickness, h), TerrainStyle.SolidMetal);             // 左侧外墙
+        map.AddBox(new Rectangle(w - thickness, 0, thickness, h), TerrainStyle.SolidMetal); // 右侧外墙
     }
 }

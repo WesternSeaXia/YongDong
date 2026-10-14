@@ -65,9 +65,9 @@ public interface ICardPlugin
     void OnProjectileBounce(Projectile projectile, CollisionManifold manifold, Action<Projectile> spawnProjectile, ParticleSystem particles) { }
 
     /// <summary>
-    /// 当子弹命中目标敌人时触发，可执行吸血、中毒、二次爆破等连锁打击。
+    /// 当子弹命中目标（敌人、地形、掩体或墙体）时触发，可执行吸血、中毒、爆炸、引力黑洞等连锁打击。
     /// </summary>
-    void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake) { }
+    void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake) { }
 
     /// <summary>
     /// 当角色释放副武器 (格挡/冲刺) 时触发，可产生副武器连锁附加效果。

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using RoundsClone.Core.Common;
@@ -12,9 +12,10 @@ namespace RoundsClone.Core.Physics;
 public class CollisionWorld
 {
     private readonly List<Collider> _colliders = new();
+    private readonly List<RopeConstraint> _ropes = new();
 
     /// <summary>
-    /// 全局重力场矢量 (向下 3500 像素/秒²，提供扎实沉稳的下落手感)。
+    /// 全局重力场矢量 (向下 4000 像素/秒²，提供扎实沉稳的下落手感)。
     /// </summary>
     public Vector2 Gravity { get; set; } = new(0f, 4000f);
 
@@ -38,11 +39,31 @@ public class CollisionWorld
     }
 
     /// <summary>
-    /// 清除所有碰撞体。
+    /// 注册一根绳索/吊链约束。
+    /// </summary>
+    public void AddRope(RopeConstraint rope)
+    {
+        if (!_ropes.Contains(rope))
+        {
+            _ropes.Add(rope);
+        }
+    }
+
+    /// <summary>
+    /// 注销一根绳索/吊链约束。
+    /// </summary>
+    public void RemoveRope(RopeConstraint rope)
+    {
+        _ropes.Remove(rope);
+    }
+
+    /// <summary>
+    /// 清除所有碰撞体与绳索约束。
     /// </summary>
     public void Clear()
     {
         _colliders.Clear();
+        _ropes.Clear();
     }
 
     /// <summary>
@@ -61,8 +82,17 @@ public class CollisionWorld
                 col.Body.IsGrounded = false;
                 col.Body.IsTouchingWall = false;
                 col.Body.WallNormal = Vector2.Zero;
+                col.Body.IsOnBouncySurface = false;
+                col.Body.GroundVelocity = Vector2.Zero;
+                col.Body.GroundBody = null;
                 col.Body.Integrate(dt, Gravity);
             }
+        }
+
+        // 步骤 1.5: 求解绳索与吊链的长度拉伸约束
+        for (int r = 0; r < _ropes.Count; r++)
+        {
+            _ropes[r].Solve(dt);
         }
 
         // 步骤 2: 遍历所有碰撞对并进行窄相解算
@@ -92,10 +122,16 @@ public class CollisionWorld
                     // 非触发器则进行刚体反弹冲量与位置排斥解算
                     if (!a.IsTrigger && !b.IsTrigger)
                     {
-                        ResolveCollision(ref manifold);
+                        ResolveCollision(ref manifold, dt);
                     }
                 }
             }
+        }
+
+        // 步骤 3: 碰撞冲量解算完成后再次修正绳索约束，杜绝碰撞把箱子砸出绳长
+        for (int r = 0; r < _ropes.Count; r++)
+        {
+            _ropes[r].Solve(dt);
         }
     }
 
@@ -123,6 +159,42 @@ public class CollisionWorld
                 (manifold.ColliderA, manifold.ColliderB) = (manifold.ColliderB, manifold.ColliderA);
             }
             return hit;
+        }
+        if (a is CircleCollider cA2 && b is PolygonCollider pB)
+        {
+            return SatCollision.TestCircleVsPolygon(cA2, pB, out manifold);
+        }
+        if (a is PolygonCollider pA && b is CircleCollider cB2)
+        {
+            bool hit = SatCollision.TestCircleVsPolygon(cB2, pA, out manifold);
+            if (hit)
+            {
+                manifold.Normal = -manifold.Normal;
+                (manifold.ColliderA, manifold.ColliderB) = (manifold.ColliderB, manifold.ColliderA);
+            }
+            return hit;
+        }
+        if (a is BoxCollider bA2 && b is PolygonCollider pB2)
+        {
+            return SatCollision.TestBoxVsPolygon(bA2, pB2, out manifold);
+        }
+        if (a is PolygonCollider pA2 && b is BoxCollider bB2)
+        {
+            bool hit = SatCollision.TestBoxVsPolygon(bB2, pA2, out manifold);
+            if (hit)
+            {
+                manifold.Normal = -manifold.Normal;
+                (manifold.ColliderA, manifold.ColliderB) = (manifold.ColliderB, manifold.ColliderA);
+            }
+            return hit;
+        }
+        if (a is PolygonCollider pA3 && b is PolygonCollider pB3)
+        {
+            return SatCollision.TestPolygonVsPolygon(pA3, pB3, out manifold);
+        }
+        if (a is BoxCollider bA3 && b is BoxCollider bB3)
+        {
+            return SatCollision.TestBoxVsBox(bA3, bB3, out manifold);
         }
 
         return false;
@@ -209,17 +281,43 @@ public class CollisionWorld
         return true;
     }
 
-    private void ResolveCollision(ref CollisionManifold m)
+    private void ResolveCollision(ref CollisionManifold m, float dt)
     {
         var bodyA = m.ColliderA.Body;
         var bodyB = m.ColliderB.Body;
+
+        // 决定反弹弹性系数
+        float restA = m.ColliderA.BouncinessOverride >= 0f ? m.ColliderA.BouncinessOverride : bodyA.Restitution;
+        float restB = m.ColliderB.BouncinessOverride >= 0f ? m.ColliderB.BouncinessOverride : bodyB.Restitution;
+        float restitution = MathF.Max(restA, restB);
 
         // 判定地面着陆支撑与垂直墙面接触
         if (!bodyA.IsStatic)
         {
             if (m.Normal.Y < -0.6f)
             {
-                bodyA.IsGrounded = true;
+                if (restitution >= 0.5f)
+                {
+                    bodyA.IsOnBouncySurface = true;
+                    // 若正在以高速向上强力弹起，不锁定地面状态
+                    if (bodyA.Velocity.Y > -120f)
+                    {
+                        bodyA.IsGrounded = true;
+                    }
+                }
+                else
+                {
+                    bodyA.IsGrounded = true;
+                }
+
+                bodyA.GroundBody = bodyB;
+                bodyA.GroundVelocity = bodyB.Velocity;
+
+                // 站在移动平台上时，直接跟随平台位移平滑移动
+                if (bodyB.Velocity != Vector2.Zero)
+                {
+                    bodyA.Position += bodyB.Velocity * dt;
+                }
             }
             else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && bodyB.IsStatic)
             {
@@ -232,7 +330,26 @@ public class CollisionWorld
         {
             if (m.Normal.Y > 0.6f)
             {
-                bodyB.IsGrounded = true;
+                if (restitution >= 0.5f)
+                {
+                    bodyB.IsOnBouncySurface = true;
+                    if (bodyB.Velocity.Y > -120f)
+                    {
+                        bodyB.IsGrounded = true;
+                    }
+                }
+                else
+                {
+                    bodyB.IsGrounded = true;
+                }
+
+                bodyB.GroundBody = bodyA;
+                bodyB.GroundVelocity = bodyA.Velocity;
+
+                if (bodyA.Velocity != Vector2.Zero)
+                {
+                    bodyB.Position += bodyA.Velocity * dt;
+                }
             }
             else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && bodyA.IsStatic)
             {
@@ -248,11 +365,6 @@ public class CollisionWorld
         // 两物体正在彼此远离，无需处理冲量
         if (velAlongNormal > 0f) return;
 
-        // 决定反弹弹性系数
-        float restA = m.ColliderA.BouncinessOverride >= 0f ? m.ColliderA.BouncinessOverride : bodyA.Restitution;
-        float restB = m.ColliderB.BouncinessOverride >= 0f ? m.ColliderB.BouncinessOverride : bodyB.Restitution;
-        float restitution = MathF.Max(restA, restB);
-
         // 计算牛顿恢复冲量大小
         float totalInvMass = bodyA.InverseMass + bodyB.InverseMass;
         if (totalInvMass <= 0.0001f) return;
@@ -262,6 +374,13 @@ public class CollisionWorld
 
         bodyA.ApplyImpulse(impulse);
         bodyB.ApplyImpulse(-impulse);
+
+        // 弹性限制：避免反弹无限累加越弹越高
+        if (restitution >= 0.5f)
+        {
+            if (bodyA.Velocity.Y < -1150f) bodyA.Velocity = new Vector2(bodyA.Velocity.X, -1150f);
+            if (bodyB.Velocity.Y < -1150f) bodyB.Velocity = new Vector2(bodyB.Velocity.X, -1150f);
+        }
 
         // 位置穿透纠偏 (Baumgarte 稳定算法，防止沉降陷入)
         float percent = 0.75f;
@@ -274,9 +393,9 @@ public class CollisionWorld
     }
 
     /// <summary>
-    /// 从起点向指定方向投射射线，测试与世界中方块障碍物的相交情况。
+    /// 从起点向指定方向投射射线，测试与世界中方块、多边形或圆形障碍物的相交情况。
     /// </summary>
-    public RaycastHit Raycast(Vector2 origin, Vector2 direction, float maxDistance)
+    public RaycastHit Raycast(Vector2 origin, Vector2 direction, float maxDistance, Collider? ignoreCollider = null)
     {
         RaycastHit closestHit = default;
         closestHit.Distance = maxDistance;
@@ -286,6 +405,8 @@ public class CollisionWorld
 
         foreach (var col in _colliders)
         {
+            if (col == ignoreCollider || !col.IsEnabled || col.IsTrigger || col.IsProjectile) continue;
+
             if (col is BoxCollider box)
             {
                 if (RayIntersectBox(origin, normDir, box, out float dist, out Vector2 normal))
@@ -300,6 +421,34 @@ public class CollisionWorld
                     }
                 }
             }
+            else if (col is PolygonCollider poly)
+            {
+                if (SatCollision.RayIntersectPolygon(origin, normDir, poly, out float dist, out Vector2 normal))
+                {
+                    if (dist >= 0f && dist < closestHit.Distance)
+                    {
+                        closestHit.HasHit = true;
+                        closestHit.Distance = dist;
+                        closestHit.Point = origin + normDir * dist;
+                        closestHit.Normal = normal;
+                        closestHit.HitCollider = poly;
+                    }
+                }
+            }
+            else if (col is CircleCollider circle)
+            {
+                if (SatCollision.RayIntersectCircle(origin, normDir, circle, out float dist, out Vector2 normal))
+                {
+                    if (dist >= 0f && dist < closestHit.Distance)
+                    {
+                        closestHit.HasHit = true;
+                        closestHit.Distance = dist;
+                        closestHit.Point = origin + normDir * dist;
+                        closestHit.Normal = normal;
+                        closestHit.HitCollider = circle;
+                    }
+                }
+            }
         }
 
         return closestHit;
@@ -311,6 +460,8 @@ public class CollisionWorld
         normal = Vector2.Zero;
 
         Rectangle bounds = box.Bounds;
+        if (bounds.Contains(origin)) return false;
+
         float tmin = (bounds.Left - origin.X) / (dir.X != 0 ? dir.X : 0.00001f);
         float tmax = (bounds.Right - origin.X) / (dir.X != 0 ? dir.X : 0.00001f);
         Vector2 nmin = -Vector2.UnitX;

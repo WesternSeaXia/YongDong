@@ -343,6 +343,107 @@ public class ShapeBatcher : IDisposable
     }
 
     /// <summary>
+    /// 绘制实心凸多边形（通过水平扫描跨距算法由单像素着色批次绘制，完全兼容 SpriteBatch 变换与跨平台渲染）。
+    /// </summary>
+    public void DrawFilledConvexPolygon(SpriteBatch spriteBatch, ReadOnlySpan<Vector2> vertices, Color color)
+    {
+        int n = vertices.Length;
+        if (n < 3) return;
+
+        float minY = float.MaxValue;
+        float maxY = float.MinValue;
+        for (int i = 0; i < n; i++)
+        {
+            if (vertices[i].Y < minY) minY = vertices[i].Y;
+            if (vertices[i].Y > maxY) maxY = vertices[i].Y;
+        }
+
+        int startY = (int)MathF.Floor(minY);
+        int endY = (int)MathF.Ceiling(maxY);
+
+        for (int y = startY; y <= endY; y++)
+        {
+            float scanY = y + 0.5f;
+            float minX = float.MaxValue;
+            float maxX = float.MinValue;
+            bool hit = false;
+
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 p1 = vertices[i];
+                Vector2 p2 = vertices[(i + 1) % n];
+
+                if ((p1.Y <= scanY && p2.Y > scanY) || (p2.Y <= scanY && p1.Y > scanY))
+                {
+                    float t = (scanY - p1.Y) / (p2.Y - p1.Y);
+                    float x = p1.X + t * (p2.X - p1.X);
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    hit = true;
+                }
+            }
+
+            if (hit && maxX >= minX)
+            {
+                int ix = (int)MathF.Floor(minX);
+                int iw = (int)MathF.Ceiling(maxX - minX + 1.0f);
+                spriteBatch.Draw(_pixelTexture, new Rectangle(ix, y, Math.Max(1, iw), 1), color);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 绘制多边形封闭轮廓线。
+    /// </summary>
+    public void DrawPolygonOutline(SpriteBatch spriteBatch, ReadOnlySpan<Vector2> vertices, Color color, float thickness = 2.5f)
+    {
+        int n = vertices.Length;
+        if (n < 2) return;
+
+        for (int i = 0; i < n; i++)
+        {
+            DrawLine(spriteBatch, vertices[i], vertices[(i + 1) % n], color, thickness);
+        }
+    }
+
+    /// <summary>
+    /// 绘制物理链条/钢索（由一系列金属链环与高光节点拼接而成）。
+    /// </summary>
+    public void DrawChain(SpriteBatch spriteBatch, Vector2 start, Vector2 end, Color linkColor, float linkLength = 12f)
+    {
+        Vector2 delta = end - start;
+        float totalDist = delta.Length();
+        if (totalDist < 2f) return;
+
+        Vector2 dir = delta / totalDist;
+        int count = Math.Max(1, (int)(totalDist / linkLength));
+        float step = totalDist / count;
+
+        Color highlightColor = Color.Lerp(linkColor, Color.White, 0.45f);
+        Color shadowColor = Color.Lerp(linkColor, Color.Black, 0.4f);
+
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 p1 = start + dir * (i * step);
+            Vector2 p2 = start + dir * ((i + 1) * step);
+
+            // 绘制主链段
+            DrawLine(spriteBatch, p1, p2, shadowColor, 3.5f);
+            DrawLine(spriteBatch, p1, p2, linkColor, 2.0f);
+
+            // 绘制链环节点
+            DrawFilledCircle(spriteBatch, p1, 3.0f, shadowColor);
+            DrawFilledCircle(spriteBatch, p1, 2.0f, highlightColor);
+        }
+
+        // 顶底两端固定锚栓金属环
+        DrawFilledCircle(spriteBatch, start, 5.0f, Color.DarkSlateGray);
+        DrawFilledCircle(spriteBatch, start, 3.0f, Color.Silver);
+        DrawFilledCircle(spriteBatch, end, 5.0f, Color.DarkSlateGray);
+        DrawFilledCircle(spriteBatch, end, 3.0f, Color.Silver);
+    }
+
+    /// <summary>
     /// 释放非托管纹理资源。
     /// </summary>
     public void Dispose()

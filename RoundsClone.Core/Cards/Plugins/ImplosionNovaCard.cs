@@ -25,11 +25,14 @@ public class ImplosionNovaCard : ICardPlugin
         actor.CurrentAmmo = actor.MaxAmmo;
     }
 
-    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
         Vector2 hitCenter = projectile.Body.Position;
-        Vector2 pullDir = MathHelper2D.SafeNormalize(hitCenter - target.Body.Position);
-        target.Body.ApplyImpulse(pullDir * 650f);
+        if (target != null)
+        {
+            Vector2 pullDir = MathHelper2D.SafeNormalize(hitCenter - target.Body.Position);
+            target.Body.ApplyImpulse(pullDir * 650f);
+        }
         particles.EmitExplosion(hitCenter, 130f, ColorPalette.ElectricPurple, 34);
         shake.AddTrauma(0.42f);
     }

@@ -25,9 +25,16 @@ public class ToxicCatalystCard : ICardPlugin
         actor.ReloadDuration *= 0.80f;
     }
 
-    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
-        target.PoisonTimer = MathF.Max(target.PoisonTimer, 3.2f);
-        particles.EmitHitSparks(target.Body.Position, Vector2.UnitY, ColorPalette.PoisonGreen, 16);
+        if (target != null)
+        {
+            target.PoisonTimer = MathF.Max(target.PoisonTimer, 3.2f);
+            particles.EmitHitSparks(target.Body.Position, Vector2.UnitY, ColorPalette.PoisonGreen, 16);
+        }
+        else
+        {
+            particles.EmitHitSparks(projectile.Body.Position, manifold.Normal, ColorPalette.PoisonGreen, 8);
+        }
     }
 }

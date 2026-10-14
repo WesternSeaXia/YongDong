@@ -9,7 +9,8 @@ namespace RoundsClone.Core.Physics;
 public enum ColliderType
 {
     Circle,
-    Box
+    Box,
+    Polygon
 }
 
 /// <summary>

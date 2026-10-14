@@ -25,7 +25,7 @@ public class ClusterBombCard : ICardPlugin
         actor.CurrentAmmo = actor.MaxAmmo;
     }
 
-    public void OnProjectileHit(Projectile projectile, Actor target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
+    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
         particles.EmitExplosion(projectile.Body.Position, 140f, ColorPalette.ExplosiveOrange, 40);
         shake.AddTrauma(0.50f);
