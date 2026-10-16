@@ -82,9 +82,11 @@ public class CollisionWorld
                 col.Body.IsGrounded = false;
                 col.Body.IsTouchingWall = false;
                 col.Body.WallNormal = Vector2.Zero;
+                col.Body.WallBody = null;
                 col.Body.IsOnBouncySurface = false;
                 col.Body.GroundVelocity = Vector2.Zero;
                 col.Body.GroundBody = null;
+                col.Body.GroundNormal = -Vector2.UnitY;
                 col.Body.Integrate(dt, Gravity);
             }
         }
@@ -95,34 +97,41 @@ public class CollisionWorld
             _ropes[r].Solve(dt);
         }
 
-        // 步骤 2: 遍历所有碰撞对并进行窄相解算
-        for (int i = 0; i < _colliders.Count; i++)
+        // 步骤 2: 遍历所有碰撞对并进行窄相与多轮接触求解 (3 轮迭代使多层堆叠箱体的受力与位置排斥完美传递收敛)
+        const int SolverIterations = 3;
+        for (int iter = 0; iter < SolverIterations; iter++)
         {
-            for (int j = i + 1; j < _colliders.Count; j++)
+            for (int i = 0; i < _colliders.Count; i++)
             {
-                var a = _colliders[i];
-                var b = _colliders[j];
-
-                if (!a.IsEnabled || !b.IsEnabled) continue;
-
-                // 子弹与子弹之间互不碰撞、互不抵消
-                if (a.IsProjectile && b.IsProjectile) continue;
-
-                // 两个静态物体之间不解算
-                if (a.Body.IsStatic && b.Body.IsStatic) continue;
-
-                if (DetectCollision(a, b, out var manifold))
+                for (int j = i + 1; j < _colliders.Count; j++)
                 {
-                    // 派发接触通知
-                    onCollision?.Invoke(manifold);
+                    var a = _colliders[i];
+                    var b = _colliders[j];
 
-                    // 若物体在碰撞事件中被禁用（例如子弹被销毁），跳过后续物理冲量解算
                     if (!a.IsEnabled || !b.IsEnabled) continue;
 
-                    // 非触发器则进行刚体反弹冲量与位置排斥解算
-                    if (!a.IsTrigger && !b.IsTrigger)
+                    // 子弹与子弹之间互不碰撞、互不抵消
+                    if (a.IsProjectile && b.IsProjectile) continue;
+
+                    // 两个静态物体之间不解算
+                    if (a.Body.IsStatic && b.Body.IsStatic) continue;
+
+                    if (DetectCollision(a, b, out var manifold))
                     {
-                        ResolveCollision(ref manifold, dt);
+                        // 派发接触通知 (仅在第 0 轮迭代触发，避免逻辑事件多次触发)
+                        if (iter == 0)
+                        {
+                            onCollision?.Invoke(manifold);
+                        }
+
+                        // 若物体在碰撞事件中被禁用（例如子弹被销毁），跳过后续物理冲量解算
+                        if (!a.IsEnabled || !b.IsEnabled) continue;
+
+                        // 非触发器则进行刚体反弹冲量与位置排斥解算
+                        if (!a.IsTrigger && !b.IsTrigger)
+                        {
+                            ResolveCollision(ref manifold, dt, iter);
+                        }
                     }
                 }
             }
@@ -132,6 +141,50 @@ public class CollisionWorld
         for (int r = 0; r < _ropes.Count; r++)
         {
             _ropes[r].Solve(dt);
+        }
+
+        // 步骤 4: 竞技场全局硬边界约束，杜绝任何实体在极限冲击/反弹下穿透外墙飞出地图
+        for (int i = 0; i < _colliders.Count; i++)
+        {
+            var col = _colliders[i];
+            if (!col.IsEnabled || col.Body == null || col.Body.IsStatic || col.IsProjectile) continue;
+
+            float halfW = col is BoxCollider box ? box.HalfSize.X : (col is CircleCollider circle ? circle.Radius : 25f);
+            float halfH = col is BoxCollider box2 ? box2.HalfSize.Y : (col is CircleCollider circle2 ? circle2.Radius : 25f);
+
+            // 竞技场外墙内边缘为 [60, 60] 到 [1860, 1020]
+            float minX = 60f + halfW;
+            float maxX = 1860f - halfW;
+            float minY = 60f + halfH;
+            float maxY = 1020f - halfH;
+
+            var pos = col.Body.Position;
+            var vel = col.Body.Velocity;
+
+            if (pos.X < minX)
+            {
+                pos.X = minX;
+                if (vel.X < 0f) vel.X = -vel.X * 0.4f;
+            }
+            else if (pos.X > maxX)
+            {
+                pos.X = maxX;
+                if (vel.X > 0f) vel.X = -vel.X * 0.4f;
+            }
+
+            if (pos.Y < minY)
+            {
+                pos.Y = minY;
+                if (vel.Y < 0f) vel.Y = -vel.Y * 0.4f;
+            }
+            else if (pos.Y > maxY)
+            {
+                pos.Y = maxY;
+                if (vel.Y > 0f) vel.Y = -vel.Y * 0.4f;
+            }
+
+            col.Body.Position = pos;
+            col.Body.Velocity = vel;
         }
     }
 
@@ -281,7 +334,7 @@ public class CollisionWorld
         return true;
     }
 
-    private void ResolveCollision(ref CollisionManifold m, float dt)
+    private void ResolveCollision(ref CollisionManifold m, float dt, int iter)
     {
         var bodyA = m.ColliderA.Body;
         var bodyB = m.ColliderB.Body;
@@ -312,17 +365,19 @@ public class CollisionWorld
 
                 bodyA.GroundBody = bodyB;
                 bodyA.GroundVelocity = bodyB.Velocity;
+                bodyA.GroundNormal = m.Normal;
 
-                // 站在移动平台上时，直接跟随平台位移平滑移动
-                if (bodyB.Velocity != Vector2.Zero)
+                // 站在移动平台上时，直接跟随平台位移平滑移动 (仅在第 0 轮迭代位移一次，避免多轮迭代重复累加超速)
+                if (iter == 0 && bodyB.Velocity != Vector2.Zero)
                 {
                     bodyA.Position += bodyB.Velocity * dt;
                 }
             }
-            else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && bodyB.IsStatic)
+            else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && (bodyB.IsStatic || bodyB.Mass >= 1.5f))
             {
                 bodyA.IsTouchingWall = true;
                 bodyA.WallNormal = new Vector2(MathF.Sign(m.Normal.X), 0f);
+                bodyA.WallBody = bodyB;
             }
         }
 
@@ -345,16 +400,18 @@ public class CollisionWorld
 
                 bodyB.GroundBody = bodyA;
                 bodyB.GroundVelocity = bodyA.Velocity;
+                bodyB.GroundNormal = -m.Normal;
 
-                if (bodyA.Velocity != Vector2.Zero)
+                if (iter == 0 && bodyA.Velocity != Vector2.Zero)
                 {
                     bodyB.Position += bodyA.Velocity * dt;
                 }
             }
-            else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && bodyA.IsStatic)
+            else if (MathF.Abs(m.Normal.X) > 0.6f && MathF.Abs(m.Normal.Y) < 0.6f && (bodyA.IsStatic || bodyA.Mass >= 1.5f))
             {
                 bodyB.IsTouchingWall = true;
                 bodyB.WallNormal = new Vector2(-MathF.Sign(m.Normal.X), 0f);
+                bodyB.WallBody = bodyA;
             }
         }
 
@@ -362,34 +419,83 @@ public class CollisionWorld
         Vector2 relVel = bodyA.Velocity - bodyB.Velocity;
         float velAlongNormal = Vector2.Dot(relVel, m.Normal);
 
-        // 两物体正在彼此远离，无需处理冲量
-        if (velAlongNormal > 0f) return;
-
         // 计算牛顿恢复冲量大小
         float totalInvMass = bodyA.InverseMass + bodyB.InverseMass;
-        if (totalInvMass <= 0.0001f) return;
-
-        float j = -(1f + restitution) * velAlongNormal / totalInvMass;
-        Vector2 impulse = j * m.Normal;
-
-        bodyA.ApplyImpulse(impulse);
-        bodyB.ApplyImpulse(-impulse);
-
-        // 弹性限制：避免反弹无限累加越弹越高
-        if (restitution >= 0.5f)
+        if (totalInvMass > 0.0001f)
         {
-            if (bodyA.Velocity.Y < -1150f) bodyA.Velocity = new Vector2(bodyA.Velocity.X, -1150f);
-            if (bodyB.Velocity.Y < -1150f) bodyB.Velocity = new Vector2(bodyB.Velocity.X, -1150f);
+            // 仅在第 0 轮迭代且相向运动时施加弹性冲量，避免多轮迭代重复累加导致速度暴增起飞
+            if (iter == 0 && velAlongNormal < 0f)
+            {
+                bool isSlopeGripA = !bodyA.IsStatic && bodyA.SlopeGrip > 0f && !bodyA.IsOnBouncySurface && bodyB.IsStatic && m.Normal.Y < -0.6f && MathF.Abs(m.Normal.X) > 0.05f;
+                bool isSlopeGripB = !bodyB.IsStatic && bodyB.SlopeGrip > 0f && !bodyB.IsOnBouncySurface && bodyA.IsStatic && m.Normal.Y > 0.6f && MathF.Abs(m.Normal.X) > 0.05f;
+
+                if (isSlopeGripA)
+                {
+                    // 角色在斜坡着陆/站立：将冲量改为垂直承托，杜绝斜向法线冲量将角色甩向坡下
+                    float j = -(1f + restitution) * velAlongNormal / totalInvMass;
+                    bodyA.Velocity += new Vector2(0f, j * m.Normal.Y * bodyA.InverseMass);
+                    if (bodyA.Velocity.Y > 0f) bodyA.Velocity = new Vector2(bodyA.Velocity.X, 0f);
+                }
+                else if (isSlopeGripB)
+                {
+                    float j = -(1f + restitution) * velAlongNormal / totalInvMass;
+                    bodyB.Velocity -= new Vector2(0f, j * m.Normal.Y * bodyB.InverseMass);
+                    if (bodyB.Velocity.Y > 0f) bodyB.Velocity = new Vector2(bodyB.Velocity.X, 0f);
+                }
+                else
+                {
+                    float j = -(1f + restitution) * velAlongNormal / totalInvMass;
+                    Vector2 impulse = j * m.Normal;
+
+                    bodyA.ApplyImpulse(impulse);
+                    bodyB.ApplyImpulse(-impulse);
+
+                    // 弹性限制：避免反弹能量叠加越弹越快导致穿墙
+                    if (restitution >= 0.5f)
+                    {
+                        if (bodyA.Velocity.LengthSquared() > 1350f * 1350f)
+                        {
+                            bodyA.Velocity = Vector2.Normalize(bodyA.Velocity) * 1350f;
+                        }
+                        if (bodyB.Velocity.LengthSquared() > 1350f * 1350f)
+                        {
+                            bodyB.Velocity = Vector2.Normalize(bodyB.Velocity) * 1350f;
+                        }
+                    }
+                }
+            }
+
+            // 位置穿透纠偏 (Baumgarte 稳定算法，每轮迭代均推开多层箱体，消除堆叠镶嵌陷入！)
+            float percent = 0.5f;
+            float slop = 0.02f;
+            float correctionMagnitude = MathF.Max(m.Penetration - slop, 0f) / totalInvMass * percent;
+            // 单次迭代纠偏位移上限（防止深层穿透时产生爆炸式瞬间位移飞出地图）
+            correctionMagnitude = MathF.Min(correctionMagnitude, 15f);
+
+            if (correctionMagnitude > 0f)
+            {
+                bool isSlopeGripA = !bodyA.IsStatic && bodyA.SlopeGrip > 0f && !bodyA.IsOnBouncySurface && bodyB.IsStatic && m.Normal.Y < -0.6f && MathF.Abs(m.Normal.X) > 0.05f;
+                bool isSlopeGripB = !bodyB.IsStatic && bodyB.SlopeGrip > 0f && !bodyB.IsOnBouncySurface && bodyA.IsStatic && m.Normal.Y > 0.6f && MathF.Abs(m.Normal.X) > 0.05f;
+
+                if (isSlopeGripA)
+                {
+                    // 斜坡角色垂直托起，彻底避免横向向坡下排挤位移
+                    float verticalOffset = -correctionMagnitude / MathF.Max(0.2f, MathF.Abs(m.Normal.Y));
+                    bodyA.Position += new Vector2(0f, verticalOffset * bodyA.InverseMass);
+                }
+                else if (isSlopeGripB)
+                {
+                    float verticalOffset = -correctionMagnitude / MathF.Max(0.2f, MathF.Abs(m.Normal.Y));
+                    bodyB.Position += new Vector2(0f, verticalOffset * bodyB.InverseMass);
+                }
+                else
+                {
+                    Vector2 correction = correctionMagnitude * m.Normal;
+                    if (!bodyA.IsStatic) bodyA.Position += correction * bodyA.InverseMass;
+                    if (!bodyB.IsStatic) bodyB.Position -= correction * bodyB.InverseMass;
+                }
+            }
         }
-
-        // 位置穿透纠偏 (Baumgarte 稳定算法，防止沉降陷入)
-        float percent = 0.75f;
-        float slop = 0.05f;
-        float correctionMagnitude = MathF.Max(m.Penetration - slop, 0f) / totalInvMass * percent;
-        Vector2 correction = correctionMagnitude * m.Normal;
-
-        if (!bodyA.IsStatic) bodyA.Position += correction * bodyA.InverseMass;
-        if (!bodyB.IsStatic) bodyB.Position -= correction * bodyB.InverseMass;
     }
 
     /// <summary>

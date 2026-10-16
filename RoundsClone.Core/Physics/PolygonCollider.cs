@@ -50,7 +50,7 @@ public class PolygonCollider : Collider
     /// <summary>
     /// 当前多边形在世界空间中的轴对齐包围盒 (AABB)。
     /// </summary>
-    public Rectangle Bounds
+    public override Rectangle Bounds
     {
         get
         {

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using RoundsClone.Core.Entities;
+using RoundsClone.Core.Maps;
 using RoundsClone.Core.Physics;
 
 namespace RoundsClone.Core.AI;
@@ -22,7 +23,8 @@ public interface IAiBrain
     /// <param name="target">对抗目标实体 (玩家)</param>
     /// <param name="projectiles">全场活跃子弹只读列表</param>
     /// <param name="world">物理碰撞世界</param>
+    /// <param name="map">当前地图环境数据（提供地形类型、陷阱分布与动态机关感知）</param>
     /// <param name="dt">帧时间步长 (秒)</param>
     /// <returns>计算出的统一控制操作意图</returns>
-    ControlInputState Think(Actor self, Actor target, IReadOnlyList<Projectile> projectiles, CollisionWorld world, float dt);
+    ControlInputState Think(Actor self, Actor target, IReadOnlyList<Projectile> projectiles, CollisionWorld world, MapData map, float dt);
 }

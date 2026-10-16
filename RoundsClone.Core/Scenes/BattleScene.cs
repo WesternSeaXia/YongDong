@@ -109,7 +109,7 @@ public class BattleScene : IScene
 
         // 1. 采集玩家输入与 AI 决策（传入摄像机视口逆映射以校准鼠标瞄准准星）
         ControlInputState playerInput = _manager.Input.GetPlayerInputState(_player, _camera.ScreenToWorld);
-        ControlInputState aiInput = _aiBrain.Think(_ai, _player, _projectiles, _world, dt);
+        ControlInputState aiInput = _aiBrain.Think(_ai, _player, _projectiles, _world, _map, dt);
 
         // 2. 更新角色实体
         _player.Update(dt, playerInput, _world, _manager.Particles, _manager.Shake, SpawnProjectile);

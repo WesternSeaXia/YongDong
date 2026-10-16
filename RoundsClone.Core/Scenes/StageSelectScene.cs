@@ -41,7 +41,8 @@ public class StageSelectScene : IScene
         int cardW = mobile ? 540 : 420;
         int cardH = mobile ? 680 : 440;
         int gap = mobile ? 45 : 55;
-        int totalW = cardW * 3 + gap * 2;
+        int count = Math.Max(1, _draftedMaps.Count);
+        int totalW = cardW * count + gap * (count - 1);
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
         int startY = mobile ? 210 : 300;
 
@@ -75,7 +76,8 @@ public class StageSelectScene : IScene
         int cardW = mobile ? 540 : 420;
         int cardH = mobile ? 680 : 440;
         int gap = mobile ? 45 : 55;
-        int totalW = cardW * 3 + gap * 2;
+        int count = Math.Max(1, _draftedMaps.Count);
+        int totalW = cardW * count + gap * (count - 1);
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
         int startY = mobile ? 210 : 300;
 

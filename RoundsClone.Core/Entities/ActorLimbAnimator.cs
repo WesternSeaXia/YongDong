@@ -286,6 +286,17 @@ public class ActorLimbAnimator
     }
 
     /// <summary>
+    /// 触发空中跳跃（二段跳）时的四肢弹簧弯曲与凌空蹬踏反馈。
+    /// </summary>
+    public void OnAirJump(float aimSign)
+    {
+        _legBendAngularVel[0] += 11.5f;
+        _legBendAngularVel[1] -= 11.5f;
+        _mainArmBendAngularVel += aimSign * 12.0f;
+        _offArmBendAngularVel -= aimSign * 13.5f;
+    }
+
+    /// <summary>
     /// 触发贴墙蹬跳时的四肢弹簧弯曲。
     /// </summary>
     public void OnWallJump(float wallNormalX, float aimSign)

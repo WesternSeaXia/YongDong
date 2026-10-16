@@ -6,8 +6,11 @@
     <ApplicationId>com.companyname.RoundsClone.Android</ApplicationId>
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
-    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == ''">C:\Users\Summer\AppData\Local\Android\Sdk</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('C:\Users\Summer\AppData\Local\Android\Sdk')">C:\Users\Summer\AppData\Local\Android\Sdk</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('D:\Visual Studio\Shared\Android\android-sdk')">D:\Visual Studio\Shared\Android\android-sdk</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('C:\Users\a2951\AppData\Local\Android\Sdk')">C:\Users\a2951\AppData\Local\Android\Sdk</AndroidSdkDirectory>
     <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('C:\Users\Summer\.jdks\temurin-21.0.12.1')">C:\Users\Summer\.jdks\temurin-21.0.12.1</JavaSdkDirectory>
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot')">C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot</JavaSdkDirectory>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
   <ItemGroup>

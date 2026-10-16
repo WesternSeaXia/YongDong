@@ -75,14 +75,34 @@ public static class MapRegistry
     }
 
     /// <summary>
-    /// 创建经典对称竞技场地图实例。
+    /// 创建工业机械悬垂竞技场地图实例。
     /// </summary>
-    public static MapData CreateClassicArena() => CreateById("map_classic");
+    public static MapData CreateIndustrialArena() => CreateById("map_industrial");
 
     /// <summary>
-    /// 创建高能反弹迷宫地图实例。
+    /// 创建重装悬垂工厂（第二张地图）实例。
     /// </summary>
-    public static MapData CreateBumperMaze() => CreateById("map_bumper");
+    public static MapData CreateVerticalFactory() => CreateById("map_vertical_factory");
+
+    /// <summary>
+    /// 创建重力冰渊大峡谷（第三张地图）实例。
+    /// </summary>
+    public static MapData CreateGravityChasm() => CreateById("map_gravity_chasm");
+
+    /// <summary>
+    /// 创建弹跳要塞（第四张地图）实例。
+    /// </summary>
+    public static MapData CreateBounceFortress() => CreateById("map_bounce_fortress");
+
+    /// <summary>
+    /// 兼容接口：创建默认竞技场地图实例。
+    /// </summary>
+    public static MapData CreateClassicArena() => CreateIndustrialArena();
+
+    /// <summary>
+    /// 兼容接口：创建默认竞技场地图实例。
+    /// </summary>
+    public static MapData CreateBumperMaze() => CreateIndustrialArena();
 
     /// <summary>
     /// 从已注册的地图插件池中随机抽取指定数量的不重复关卡（用于关卡三选一界面）。

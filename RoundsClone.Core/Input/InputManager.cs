@@ -343,6 +343,8 @@ public class InputManager
         Vector2 move = Vector2.Zero;
         if (_currKeyboard.IsKeyDown(Keys.A) || _currKeyboard.IsKeyDown(Keys.Left)) move.X -= 1f;
         if (_currKeyboard.IsKeyDown(Keys.D) || _currKeyboard.IsKeyDown(Keys.Right)) move.X += 1f;
+        if (_currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up)) move.Y -= 1f;
+        if (_currKeyboard.IsKeyDown(Keys.S) || _currKeyboard.IsKeyDown(Keys.Down)) move.Y += 1f;
 
         if (_leftStickActive && _leftKnobOffset.Length() > deadzoneRadius)
         {
@@ -354,8 +356,17 @@ public class InputManager
                 float normalizedX = (absX - xDeadzone) / maxEffective;
                 move.X += MathF.Sign(_leftKnobOffset.X) * MathHelper.Clamp(normalizedX, 0f, 1f);
             }
+
+            float absY = MathF.Abs(_leftKnobOffset.Y);
+            float yDeadzone = deadzoneRadius * 0.7f;
+            if (absY > yDeadzone)
+            {
+                float maxEffectiveY = MathF.Max(1f, StickRadius * 0.78f - yDeadzone);
+                float normalizedY = (absY - yDeadzone) / maxEffectiveY;
+                move.Y += MathF.Sign(_leftKnobOffset.Y) * MathHelper.Clamp(normalizedY, 0f, 1f);
+            }
         }
-        input.MoveVector = new Vector2(MathHelper.Clamp(move.X, -1f, 1f), 0f);
+        input.MoveVector = new Vector2(MathHelper.Clamp(move.X, -1f, 1f), MathHelper.Clamp(move.Y, -1f, 1f));
 
         // 2. 跳跃检测（根据设置项决定左侧摇杆上推是否触发跳跃）
         bool jumpKey = _currKeyboard.IsKeyDown(Keys.Space) || _currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up);

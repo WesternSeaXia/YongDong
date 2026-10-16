@@ -75,6 +75,16 @@ public class RigidBody2D
     public RigidBody2D? GroundBody { get; set; }
 
     /// <summary>
+    /// 站立地面的表面法线（平地为 (0, -1)，斜坡带有倾斜分量）。
+    /// </summary>
+    public Vector2 GroundNormal { get; set; } = -Vector2.UnitY;
+
+    /// <summary>
+    /// 坡道抓地力倍率（0 为纯物理自由溜坡滑落，1 为消除沿斜坡重力下滑分量，保持如平地般站立稳定与均速移动）。
+    /// </summary>
+    public float SlopeGrip { get; set; } = 0f;
+
+    /// <summary>
     /// 是否接触垂直墙壁（左墙或右墙）。
     /// </summary>
     public bool IsTouchingWall { get; set; }
@@ -83,6 +93,11 @@ public class RigidBody2D
     /// 接触的墙壁法线（指向脱离墙壁方向，如贴左墙为 (1, 0)，贴右墙为 (-1, 0)）。
     /// </summary>
     public Vector2 WallNormal { get; set; } = Vector2.Zero;
+
+    /// <summary>
+    /// 当前贴附的墙壁、高台或悬挂箱刚体。
+    /// </summary>
+    public RigidBody2D? WallBody { get; set; }
 
     // 帧合力累加器
     private Vector2 _accumulatedForce = Vector2.Zero;
@@ -136,7 +151,14 @@ public class RigidBody2D
         float dragFactorY = MathF.Max(0f, 1f - (Drag * 0.025f) * dt * 60f);
         Velocity = new Vector2(Velocity.X * dragFactorX, Velocity.Y * dragFactorY);
 
-        // 4. 积分计算新位移
+        // 4. 速度上限保护（防止超高冲击力或连续反弹使刚体在单帧内位移超过墙体厚度导致穿墙，即防隧穿保护）
+        const float MaxSpeed = 2200f;
+        if (Velocity.LengthSquared() > MaxSpeed * MaxSpeed)
+        {
+            Velocity = Vector2.Normalize(Velocity) * MaxSpeed;
+        }
+
+        // 5. 积分计算新位移
         Position += Velocity * dt;
 
         // 5. 重置合力积蓄

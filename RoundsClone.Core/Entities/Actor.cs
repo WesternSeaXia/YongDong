@@ -55,8 +55,8 @@ public class Actor
     // --- 核心基准力学常数 ---
     public const float BaseRadius = 26f;
     public const float BaseMass = 1.0f;
-    public const float BaseMoveForce = 2220f;
-    public const float BaseJumpImpulse = 1100f;
+    public const float BaseMoveForce = 2600f; // 基础水平推力 2600 N，终端奔跑最高时速约 394 px/s（约 6.6 格/秒）
+    public const float BaseJumpImpulse = 1263f; // 起跳初速度 1263 px/s，对应极限跳跃高度 182 px（精确等于角色身高 52 px 的 3.5 倍）
 
     /// <summary>
     /// 角色当前物理碰撞半径（像素），随最大生命值动态缩放。
@@ -75,6 +75,16 @@ public class Actor
 
     public float MoveForce { get; set; } = BaseMoveForce;
     public float JumpImpulse { get; set; } = BaseJumpImpulse;
+
+    /// <summary>
+    /// 角色最大连续跳跃次数（默认 1 次：高处走下平台在空中仍可跳跃 1 次，着陆后刷新；跳过一次后空中不可二段跳）。
+    /// </summary>
+    public int MaxJumps { get; set; } = 1;
+
+    /// <summary>
+    /// 角色当前剩余可用跳跃次数（着陆或触地后立即无条件刷新为 MaxJumps）。
+    /// </summary>
+    public int RemainingJumps { get; set; } = 1;
 
     // --- 主武器与弹匣换弹属性 ---
     public int MaxAmmo { get; set; } = 3;
@@ -144,7 +154,8 @@ public class Actor
             Drag = 0.11f,
             GravityScale = 1.0f,
             FallGravityMultiplier = 1.28f,
-            Restitution = 0.05f
+            Restitution = 0.05f,
+            SlopeGrip = 1.0f // 启用角色专属坡道抓地，确保斜坡站立不溜坡、上下坡均速
         };
 
         Collider = new CircleCollider(Body, Radius);
@@ -181,19 +192,42 @@ public class Actor
         // 1. 更新受击闪烁与持续毒素状态
         UpdateStatusEffects(dt, particles, shake);
 
-        // 2. 更新瞄准方向与水平移动推力
+        // 2. 更新瞄准方向与地面/斜坡移动推力
         if (input.AimVector.LengthSquared() > 0.001f)
         {
             _currentAim = MathHelper2D.SafeNormalize(input.AimVector);
         }
 
-        if (world != null && MathF.Abs(input.MoveVector.X) > 0.05f)
+        if (world != null)
         {
-            Body.AddForce(new Vector2(input.MoveVector.X * MoveForce, 0f));
+            float moveInput = input.MoveVector.X;
+            if (MathF.Abs(moveInput) > 0.05f)
+            {
+                if (Body.IsGrounded && !Body.IsOnBouncySurface && MathF.Abs(Body.GroundNormal.X) > 0.05f)
+                {
+                    // 站在斜坡上移动：推力沿斜坡切线方向施加，让上下坡速度与平地完全一致
+                    Vector2 tangent = MathHelper2D.SafeNormalize(new Vector2(-Body.GroundNormal.Y, Body.GroundNormal.X));
+                    if (tangent.X < 0f) tangent = -tangent; // 确保正切线朝右
+                    Body.AddForce(tangent * (moveInput * MoveForce));
+                }
+                else
+                {
+                    // 平地或空中：常规水平推力
+                    Body.AddForce(new Vector2(moveInput * MoveForce, 0f));
+                }
+            }
+            else if (Body.IsGrounded && !Body.IsOnBouncySurface && MathF.Abs(Body.GroundNormal.X) > 0.05f)
+            {
+                // 玩家松手未输入时：在斜坡上站定如平地，无条件彻底锁死滑动速度
+                Vector2 tangent = MathHelper2D.SafeNormalize(new Vector2(-Body.GroundNormal.Y, Body.GroundNormal.X));
+                float tangentVel = Vector2.Dot(Body.Velocity, tangent);
+                Body.Velocity -= tangent * tangentVel;
+                Body.Velocity = new Vector2(0f, 0f);
+            }
         }
 
         // 3. 更新跳跃缓冲、土狼时间、贴墙滑行与坠落缓冲/撞击伤害
-        UpdateJumpAndWallSlide(dt, input, particles, shake);
+        UpdateJumpAndWallSlide(dt, input, world, particles, shake);
 
         // 4. 更新主武器射击与弹匣换弹
         UpdateWeaponAndReload(dt, input, particles, shake, onSpawnProjectile);
@@ -220,7 +254,7 @@ public class Actor
         }
     }
 
-    private void UpdateJumpAndWallSlide(float dt, ControlInputState input, ParticleSystem particles, ScreenShake shake)
+    private void UpdateJumpAndWallSlide(float dt, ControlInputState input, CollisionWorld? world, ParticleSystem particles, ScreenShake shake)
     {
         bool jumpJustPressed = input.IsJumpDown && !_prevJumpDown;
         _prevJumpDown = input.IsJumpDown;
@@ -228,8 +262,15 @@ public class Actor
         if (jumpJustPressed) _jumpBufferTimer = 0.14f;
         else if (_jumpBufferTimer > 0f) _jumpBufferTimer -= dt;
 
-        if (Body.IsGrounded) _groundCoyoteTimer = 0.10f;
-        else if (_groundCoyoteTimer > 0f) _groundCoyoteTimer -= dt;
+        if (Body.IsGrounded)
+        {
+            _groundCoyoteTimer = 0.10f;
+            RemainingJumps = MaxJumps; // 处于地面时持续保持跳跃次数充满
+        }
+        else if (_groundCoyoteTimer > 0f)
+        {
+            _groundCoyoteTimer -= dt;
+        }
 
         if (Body.IsTouchingWall && !Body.IsGrounded)
         {
@@ -241,7 +282,7 @@ public class Actor
             _wallCoyoteTimer -= dt;
         }
 
-        // 贴墙缓缓下滑与摩擦火花
+        // 贴墙缓缓下滑与摩擦火花（无论普通静态墙体还是悬挂箱，侧面均可贴边滑行）
         IsWallSliding = Body.IsTouchingWall && !Body.IsGrounded;
         if (IsWallSliding && Body.Velocity.Y > 0f)
         {
@@ -260,15 +301,19 @@ public class Actor
 
         float aimSign = _currentAim.X >= 0f ? 1f : -1f;
 
-        // 执行地面跳跃或贴墙蹬跳
+        // 执行跳跃逻辑（包含地面起跳、贴墙蹬跳与空中多段跳）
         if (_jumpBufferTimer > 0f)
         {
             if (_groundCoyoteTimer > 0f)
             {
-                Body.Velocity = new Vector2(Body.Velocity.X, -JumpImpulse);
+                // 1. 地面跳跃（包括土狼时间内的起跳）
+                float jumpX = MathF.Abs(input.MoveVector.X) > 0.05f ? Body.Velocity.X : 0f;
+                Body.Velocity = new Vector2(jumpX, -JumpImpulse);
                 Body.IsGrounded = false;
+                Body.GroundNormal = -Vector2.UnitY;
                 _groundCoyoteTimer = 0f;
                 _jumpBufferTimer = 0f;
+                RemainingJumps = Math.Max(0, RemainingJumps - 1);
 
                 Squash.ApplyStretch(Vector2.UnitY, 0.30f);
                 LimbAnimator.OnGroundJump(aimSign, 1.0f);
@@ -276,6 +321,7 @@ public class Actor
             }
             else if (_wallCoyoteTimer > 0f && _lastWallNormal != Vector2.Zero)
             {
+                // 2. 贴墙蹬跳
                 float wallKickX = _lastWallNormal.X * 300f;
                 float wallJumpY = -JumpImpulse * 0.94f;
 
@@ -283,6 +329,8 @@ public class Actor
                 Body.IsTouchingWall = false;
                 _wallCoyoteTimer = 0f;
                 _jumpBufferTimer = 0f;
+                // 蹬墙起跳后消耗当前跳跃，落地或再次贴墙可重置
+                RemainingJumps = 0;
 
                 Vector2 jumpDir = MathHelper2D.SafeNormalize(new Vector2(wallKickX, wallJumpY));
                 Squash.ApplyStretch(jumpDir, 0.32f);
@@ -291,38 +339,82 @@ public class Actor
                 Vector2 wallContactPos = Body.Position - _lastWallNormal * Radius;
                 particles.EmitHitSparks(wallContactPos, _lastWallNormal, ThemeColor, 10);
             }
+            else if (RemainingJumps > 0)
+            {
+                // 3. 空中跳跃（从高台走下/未起跳直接滞空时，仍可跳跃 1 次，落地刷新）
+                float jumpX = Body.Velocity.X;
+                if (MathF.Abs(input.MoveVector.X) > 0.05f)
+                {
+                    float targetDir = MathF.Sign(input.MoveVector.X);
+                    // 空中机动变向强化：反向时大幅纠偏，同向时保持迅猛动力
+                    if (MathF.Sign(jumpX) != targetDir)
+                    {
+                        jumpX = targetDir * MathF.Max(MathF.Abs(jumpX) * 0.5f, 220f);
+                    }
+                    else
+                    {
+                        jumpX = targetDir * MathF.Max(MathF.Abs(jumpX), 240f);
+                    }
+                }
+
+                // 斩断空中急速下坠速度，凌空强力起跳升空
+                Body.Velocity = new Vector2(jumpX, -JumpImpulse);
+                RemainingJumps = 0; // 消耗本次跳跃，不可在空中二次起跳（非二段跳）
+                _jumpBufferTimer = 0f;
+
+                Squash.ApplyStretch(Vector2.UnitY, 0.35f);
+                LimbAnimator.OnAirJump(aimSign);
+                particles.EmitAirJump(Body.Position + new Vector2(0, Radius * 0.65f), ThemeColor);
+            }
         }
         else if (input.IsJumpDown && Body.IsGrounded)
         {
-            Body.Velocity = new Vector2(Body.Velocity.X, -JumpImpulse);
+            // 按住跳跃键在平地连续起跳
+            float jumpX = MathF.Abs(input.MoveVector.X) > 0.05f ? Body.Velocity.X : 0f;
+            Body.Velocity = new Vector2(jumpX, -JumpImpulse);
             Body.IsGrounded = false;
+            Body.GroundNormal = -Vector2.UnitY;
             _groundCoyoteTimer = 0f;
+            RemainingJumps = Math.Max(0, RemainingJumps - 1);
+
             Squash.ApplyStretch(Vector2.UnitY, 0.30f);
             LimbAnimator.OnGroundJump(aimSign, 0.94f);
             particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
         }
 
-        // 落地冲击判定：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
-        if (Body.IsGrounded && !_wasGroundedLastFrame && _prevFallVelocity > 150f)
+        // 落地冲击判定与斜坡着陆吸附：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
+        if (Body.IsGrounded && !_wasGroundedLastFrame)
         {
-            if (_prevFallVelocity > 1600f && !Body.IsOnBouncySurface)
-            {
-                // 仅在超高空极速坠落或向下强力下砸时，且非高弹蹦床时，才触发身体重压受挫伤害与深蹲压弯
-                float excessSpeed = _prevFallVelocity - 1600f;
-                float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
-                TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);
+            // 着陆时无条件刷新可用跳跃次数
+            RemainingJumps = MaxJumps;
 
-                float buckleIntensity = MathHelper.Clamp(excessSpeed / 600f, 0.40f, 1.10f);
-                Squash.ApplySquash(Vector2.UnitY, MathHelper.Clamp(buckleIntensity * 0.40f, 0.25f, 0.55f));
-                LimbAnimator.OnHeavyFallImpact(buckleIntensity, aimSign);
-                particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 10);
-            }
-            else
+            // 斜坡着陆吸附：若无水平输入，消除切向滑冲量，手感同平地着陆稳稳站定不溜车
+            if (!Body.IsOnBouncySurface && MathF.Abs(Body.GroundNormal.X) > 0.05f && MathF.Abs(input.MoveVector.X) <= 0.05f)
             {
-                float landIntensity = MathHelper.Clamp(_prevFallVelocity / 1600f, 0.12f, 0.30f);
-                Squash.ApplySquash(Vector2.UnitY, landIntensity);
-                LimbAnimator.OnLandImpact(landIntensity, aimSign);
-                particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
+                Body.Velocity = Vector2.Zero;
+            }
+
+            if (_prevFallVelocity > 150f)
+            {
+                if (_prevFallVelocity > 1600f && !Body.IsOnBouncySurface)
+                {
+                    // 仅在超高空极速坠落或向下强力下砸时，且非高弹蹦床时，才触发身体重压受挫伤害与深蹲压弯
+                    float excessSpeed = _prevFallVelocity - 1600f;
+                    float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
+                    TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);
+
+                    float buckleIntensity = MathHelper.Clamp(excessSpeed / 600f, 0.40f, 1.10f);
+                    Squash.ApplySquash(Vector2.UnitY, MathHelper.Clamp(buckleIntensity * 0.40f, 0.25f, 0.55f));
+                    LimbAnimator.OnHeavyFallImpact(buckleIntensity, aimSign);
+                    particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 10);
+                }
+                else
+                {
+                    float landIntensity = MathHelper.Clamp(_prevFallVelocity / 1600f, 0.12f, 0.30f);
+                    Squash.ApplySquash(Vector2.UnitY, landIntensity);
+                    LimbAnimator.OnLandImpact(landIntensity, aimSign);
+                    particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
+                }
             }
         }
         _wasGroundedLastFrame = Body.IsGrounded;
@@ -486,6 +578,7 @@ public class Actor
         _prevFallVelocity = 0f;
         _lastWallNormal = Vector2.Zero;
         IsWallSliding = false;
+        RemainingJumps = MaxJumps;
         LimbAnimator.Reset();
         RecalculateHealthScaling();
         if (SubWeapon != null) SubWeapon.CurrentCooldown = 0f;

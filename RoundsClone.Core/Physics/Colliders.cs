@@ -48,6 +48,11 @@ public abstract class Collider
     /// </summary>
     public bool IsProjectile { get; set; } = false;
 
+    /// <summary>
+    /// 当前碰撞体在世界空间中的轴对齐包围盒 (AABB)。
+    /// </summary>
+    public abstract Rectangle Bounds { get; }
+
     protected Collider(RigidBody2D body)
     {
         Body = body;
@@ -61,6 +66,13 @@ public class CircleCollider : Collider
 {
     public float Radius { get; set; }
     public override ColliderType Type => ColliderType.Circle;
+
+    public override Rectangle Bounds => new(
+        (int)(Body.Position.X - Radius),
+        (int)(Body.Position.Y - Radius),
+        (int)(Radius * 2),
+        (int)(Radius * 2)
+    );
 
     public CircleCollider(RigidBody2D body, float radius) : base(body)
     {
@@ -78,7 +90,7 @@ public class BoxCollider : Collider
 
     public Vector2 HalfSize => Size * 0.5f;
 
-    public Rectangle Bounds => new(
+    public override Rectangle Bounds => new(
         (int)(Body.Position.X - HalfSize.X),
         (int)(Body.Position.Y - HalfSize.Y),
         (int)Size.X,

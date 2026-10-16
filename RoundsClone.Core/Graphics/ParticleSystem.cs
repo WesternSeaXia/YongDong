@@ -210,6 +210,50 @@ public class ParticleSystem
     }
 
     /// <summary>
+    /// 触发空中二段跳时的空气冲击波环与脚底气浪爆发特效。
+    /// </summary>
+    public void EmitAirJump(Vector2 position, Color color)
+    {
+        // 1. 空气爆散冲击环（白色至透明，向下缓移）
+        AddParticle(new Particle
+        {
+            Position = position,
+            Velocity = new Vector2(0f, 35f),
+            Drag = 0.92f,
+            Gravity = 0f,
+            StartColor = Color.White * 0.95f,
+            EndColor = color * 0f,
+            StartSize = 10f,
+            EndSize = 48f,
+            Lifetime = 0f,
+            MaxLifetime = 0.22f,
+            Shape = ParticleShape.Ring
+        });
+
+        // 2. 向下放射状喷射的气浪微粒
+        for (int i = 0; i < 9; i++)
+        {
+            float vx = (float)(_rand.NextDouble() - 0.5) * 180f;
+            float vy = (float)(_rand.NextDouble() * 110 + 40);
+
+            AddParticle(new Particle
+            {
+                Position = position + new Vector2((float)(_rand.NextDouble() - 0.5) * 16f, 0f),
+                Velocity = new Vector2(vx, vy),
+                Drag = 0.88f,
+                Gravity = 120f,
+                StartColor = Color.Lerp(color, Color.White, 0.45f) * 0.85f,
+                EndColor = Color.Transparent,
+                StartSize = (float)(_rand.NextDouble() * 7 + 4),
+                EndSize = 0.5f,
+                Lifetime = 0f,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.24 + 0.14),
+                Shape = ParticleShape.Circle
+            });
+        }
+    }
+
+    /// <summary>
     /// 贴墙缓缓下滑时的摩擦火星微粒。
     /// </summary>
     public void EmitWallSlideFriction(Vector2 position, Vector2 wallNormal, Color color)
