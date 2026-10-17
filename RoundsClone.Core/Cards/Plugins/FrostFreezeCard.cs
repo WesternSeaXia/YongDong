@@ -14,13 +14,18 @@ public class FrostFreezeCard : ICardPlugin
 {
     public string Id => "card_frost_freeze";
     public string Name => "极寒冰冻";
-    public string Description => "命中减速 50%\n换弹速度 +15%";
+    public string Description => "命中强烈减速 50%\n换弹速度 +15%\n击退冲量 -35%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Frost;
 
     public void OnApply(Actor actor)
     {
         actor.ReloadDuration *= 0.85f;
+    }
+
+    public void OnProjectileSpawn(Actor actor, Projectile projectile)
+    {
+        projectile.KnockbackImpulse *= 0.65f;
     }
 
     public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)

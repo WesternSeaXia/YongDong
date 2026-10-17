@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RoundsClone.Core.Common;
@@ -25,6 +25,12 @@ public static class ActorRenderer
         Vector2 currentAim = actor.CurrentAim;
 
         Color renderColor = actor.HitFlashTimer > 0f ? ColorPalette.WhiteFlash : actor.ThemeColor;
+        if (actor.InvulnerabilityTimer > 0f)
+        {
+            float pulse = 0.5f + 0.5f * MathF.Sin(actor.InvulnerabilityTimer * 24f);
+            renderColor = Color.Lerp(renderColor, Color.Gold, 0.6f + pulse * 0.4f);
+            batcher.DrawCircleOutline(spriteBatch, pos, actor.Radius + 7f, Color.Gold * (0.4f + pulse * 0.6f), 2.5f);
+        }
         Color limbBlack = new(10, 12, 16);
         Color limbRim = new(44, 50, 66, 150);
         Color outlineColor = new(14, 18, 28, 235);

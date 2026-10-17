@@ -14,7 +14,7 @@ public class ImplosionNovaCard : ICardPlugin
 {
     public string Id => "card_implosion_nova";
     public string Name => "黑洞引力";
-    public string Description => "命中产生强力牵引\n弹匣容量 +2";
+    public string Description => "命中强力黑洞牵引\n弹匣容量 +2\n射击间隔 +25%";
     public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Crosshair;
 
@@ -23,6 +23,7 @@ public class ImplosionNovaCard : ICardPlugin
         actor.ImplosionBullets = true;
         actor.MaxAmmo += 2;
         actor.CurrentAmmo = actor.MaxAmmo;
+        actor.FireRateCooldown *= 1.25f;
     }
 
     public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)

@@ -45,6 +45,15 @@ public class BlockSubWeapon : ISubWeapon
         return true;
     }
 
+    /// <summary>
+    /// 强制激活格挡力场（由被动技能如终击之盾触发，无需等待常规副武器冷却）。
+    /// </summary>
+    public void ForceActivate(Actor user)
+    {
+        _activeTimer = ActiveDuration;
+        user.Body.Velocity *= 0.6f;
+    }
+
     public void Update(float dt)
     {
         if (CurrentCooldown > 0f) CurrentCooldown -= dt;

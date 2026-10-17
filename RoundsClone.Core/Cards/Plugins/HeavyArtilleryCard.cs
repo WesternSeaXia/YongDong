@@ -11,7 +11,7 @@ public class HeavyArtilleryCard : ICardPlugin
 {
     public string Id => "card_heavy_artillery";
     public string Name => "重装火炮";
-    public string Description => "伤害 +85%\n弹丸体积 +70%\n换弹时间 +25%";
+    public string Description => "伤害 +85%\n弹丸体积 +70%\n换弹时间 +25%\n后坐力 +80%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Heavy;
 

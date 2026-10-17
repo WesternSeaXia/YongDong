@@ -118,8 +118,31 @@ public class CardSelectScene : IScene
             batcher.DrawCircleOutline(spriteBatch, iconCenter, ringR, tierColor, 3.5f);
             ProceduralIcons.DrawIcon(batcher, spriteBatch, card.Icon, iconCenter, mobile ? 105f : 75f, tierColor);
 
-            // 4. 简洁数值属性
-            font.DrawText(spriteBatch, card.Description, new Vector2(cardRect.Center.X, cardRect.Y + (mobile ? 460 : 350)), ColorPalette.TextWhite, mobile ? 1.42f : 0.95f, new Vector2(0.5f, 0f));
+            // 4. 双刃剑数值词条展示（增益绿字，代价红字）
+            string[] descLines = card.Description.Split('\n');
+            float lineSpacing = (mobile ? 1.32f : 0.88f) * 32f;
+            float curY = cardRect.Y + (mobile ? 440 : 330);
+
+            for (int li = 0; li < descLines.Length; li++)
+            {
+                string line = descLines[li];
+                Color lineColor = ColorPalette.TextWhite;
+
+                // 增益判定（绿字）
+                if (line.Contains('+') || line.Contains("成长") || line.Contains("免疫") || line.Contains("折射") || line.Contains("补满") || line.Contains("无敌") || line.Contains("复活") || line.Contains("滑翔") || line.Contains("返还"))
+                {
+                    lineColor = new Color(130, 255, 150);
+                }
+
+                // 代价/负面判定（红字）
+                if (line.Contains('-') || line.Contains("换弹时间 +") || line.Contains("后坐力 +") || line.Contains("散布 +") || line.Contains("间隔 +") || line.Contains("冷却 +") || line.Contains("伤害 -") || line.Contains("生命 -") || line.Contains("速度 -"))
+                {
+                    lineColor = new Color(255, 115, 115);
+                }
+
+                font.DrawText(spriteBatch, line, new Vector2(cardRect.Center.X, curY), lineColor, mobile ? 1.32f : 0.88f, new Vector2(0.5f, 0f));
+                curY += lineSpacing;
+            }
         }
     }
 

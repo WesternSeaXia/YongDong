@@ -81,9 +81,20 @@ public class Projectile
     public bool IsDestroyed { get; private set; } = false;
 
     /// <summary>
-    /// 子弹截面基准半径。
+    /// 子弹截面基准半径与伤害基数。
     /// </summary>
     public float Radius { get; set; } = 5.2f;
+    public float BaseRadius { get; set; } = 5.2f;
+    public float BaseDamage { get; set; } = 25f;
+
+    /// <summary>
+    /// 新机制标志位。
+    /// </summary>
+    public bool IsGrowBullet { get; set; } = false;
+    public bool IsSneakyBullet { get; set; } = false;
+    public bool HasTargetBounce { get; set; } = false;
+    public bool HasTargetBounced { get; set; } = false;
+    public bool SpawnsToxicCloud { get; set; } = false;
 
     /// <summary>
     /// 弹头基准色彩（跟随发射者主题色）。
@@ -102,6 +113,8 @@ public class Projectile
     {
         Owner = owner;
         Damage = damage;
+        BaseDamage = damage;
+        BaseRadius = Radius;
         BulletColor = color;
 
         Body = new RigidBody2D(position, 0.16f)
@@ -123,9 +136,9 @@ public class Projectile
     }
 
     /// <summary>
-    /// 帧更新子弹物理轨迹与克制的尾迹采样。
+    /// 帧更新子弹物理轨迹、贴地飞行探测、飞行增殖与克制的尾迹采样。
     /// </summary>
-    public void Update(float dt, ParticleSystem particles)
+    public void Update(float dt, ParticleSystem particles, CollisionWorld? world = null)
     {
         if (IsDestroyed) return;
 
@@ -136,7 +149,36 @@ public class Projectile
             return;
         }
 
-        // 1. 低频采样简短历史节点（仅保留 4 个点，极短极淡的微弱拖尾）
+        // 1. 飞行增殖机制 (Grow)：随着空中飞行时间越长，弹头体积与伤害递增（最长成长 3 秒，最高 2.4 倍体型，2.5 倍伤害）
+        if (IsGrowBullet && Lifetime <= 3.0f)
+        {
+            float scale = MathHelper.Clamp(1.0f + Lifetime * 0.45f, 1.0f, 2.4f);
+            Radius = BaseRadius * scale;
+            Collider.Radius = Radius;
+            Damage = BaseDamage * MathHelper.Clamp(1.0f + Lifetime * 0.50f, 1.0f, 2.5f);
+        }
+
+        // 2. 贴地飞行机制 (Sneaky)：地面与 45° 斜坡气垫排斥滑翔，垂直 90° 墙面失去效果
+        if (IsSneakyBullet && world != null && !IsDestroyed)
+        {
+            var hit = world.Raycast(Body.Position, Vector2.UnitY, 28f, Collider);
+            if (hit.HasHit && hit.Normal.Y <= -0.707f) // 法线与向上夹角 <= 45° (平地或45度坡)
+            {
+                float desiredY = hit.Point.Y - 14f;
+                if (Body.Position.Y > desiredY - 6f)
+                {
+                    // 顺沿地面切线偏转速度
+                    Vector2 tangent = new(-hit.Normal.Y, hit.Normal.X);
+                    if (Vector2.Dot(Body.Velocity, tangent) < 0f) tangent = -tangent;
+
+                    float speed = Body.Velocity.Length();
+                    Body.Velocity = tangent * speed;
+                    Body.Position = new Vector2(Body.Position.X, MathHelper.Lerp(Body.Position.Y, desiredY, dt * 20f));
+                }
+            }
+        }
+
+        // 3. 低频采样简短历史节点（仅保留 4 个点，极短极淡的微弱拖尾）
         _trailSampleTimer += dt;
         if (_trailSampleTimer >= 0.024f)
         {
@@ -148,7 +190,7 @@ public class Projectile
             }
         }
 
-        // 2. 降低尾焰粒子喷发频率，避免拖尾视觉喧宾夺主
+        // 4. 降低尾焰粒子喷发频率，避免拖尾视觉喧宾夺主
         _particleTimer += dt;
         if (_particleTimer >= 0.08f)
         {

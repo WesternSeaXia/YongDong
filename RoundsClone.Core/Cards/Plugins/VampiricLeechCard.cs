@@ -15,7 +15,7 @@ public class VampiricLeechCard : ICardPlugin
 {
     public string Id => "card_vampiric_leech";
     public string Name => "生命虹吸";
-    public string Description => "最大生命 +25\n伤害吸血 +30%";
+    public string Description => "最大生命 +25\n伤害吸血 +30%\n换弹时间 +0.35s";
     public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Leech;
 
@@ -23,6 +23,7 @@ public class VampiricLeechCard : ICardPlugin
     {
         actor.MaxHealth += 25f;
         actor.CurrentHealth = MathF.Min(actor.CurrentHealth + 25f, actor.MaxHealth);
+        actor.ReloadDuration += 0.35f;
         actor.RecalculateHealthScaling();
     }
 

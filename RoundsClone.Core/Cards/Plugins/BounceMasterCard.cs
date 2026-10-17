@@ -14,18 +14,19 @@ public class BounceMasterCard : ICardPlugin
 {
     public string Id => "card_bounce_master";
     public string Name => "弹跳大师";
-    public string Description => "弹射次数 +2\n反弹伤害 +25%";
+    public string Description => "弹射次数 +2\n反弹伤害 +35%\n单发初始伤害 -15%";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Bounce;
 
     public void OnApply(Actor actor)
     {
         actor.BulletBounces += 2;
+        actor.BulletDamage *= 0.85f;
     }
 
     public void OnProjectileBounce(Projectile projectile, CollisionManifold manifold, Action<Projectile> spawnProjectile, ParticleSystem particles)
     {
-        projectile.Damage *= 1.25f;
+        projectile.Damage *= 1.35f;
         particles.EmitHitSparks(projectile.Body.Position, manifold.Normal, ColorPalette.BouncySurface, 10);
     }
 }

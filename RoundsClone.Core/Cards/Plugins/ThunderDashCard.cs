@@ -12,7 +12,7 @@ public class ThunderDashCard : ICardPlugin
 {
     public string Id => "card_thunder_dash";
     public string Name => "雷霆冲刺";
-    public string Description => "冲刺速度 +40%\n副武器冷却 -30%";
+    public string Description => "冲刺速度 +40%\n副武器冷却 -30%\n释放补满弹匣\n最大生命 -20";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Dash;
 
@@ -27,6 +27,10 @@ public class ThunderDashCard : ICardPlugin
         {
             actor.SubWeapon.Cooldown *= 0.8f;
         }
+
+        actor.MaxHealth = System.MathF.Max(30f, actor.MaxHealth - 20f);
+        actor.CurrentHealth = System.MathF.Min(actor.CurrentHealth, actor.MaxHealth);
+        actor.RecalculateHealthScaling();
     }
 
     public void OnSecondaryUsed(Actor actor, ISubWeapon weapon)

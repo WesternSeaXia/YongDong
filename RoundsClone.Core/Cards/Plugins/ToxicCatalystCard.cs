@@ -15,7 +15,7 @@ public class ToxicCatalystCard : ICardPlugin
 {
     public string Id => "card_toxic_catalyst";
     public string Name => "剧毒催化";
-    public string Description => "附带 3 秒中毒伤害\n换弹速度 +20%";
+    public string Description => "附带 3.2秒持续剧毒\n换弹速度 +20%\n初始直接伤害 -15%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Poison;
 
@@ -23,6 +23,7 @@ public class ToxicCatalystCard : ICardPlugin
     {
         actor.PoisonBullets = true;
         actor.ReloadDuration *= 0.80f;
+        actor.BulletDamage *= 0.85f;
     }
 
     public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)

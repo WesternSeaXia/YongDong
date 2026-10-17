@@ -12,13 +12,14 @@ public class AcceleratingRocketCard : ICardPlugin
 {
     public string Id => "card_rocket_thruster";
     public string Name => "火箭助推";
-    public string Description => "弹速 +45%\n子弹无重力下坠";
+    public string Description => "弹速 +45%\n子弹无重力下坠\n换弹时间 +0.25s";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Bullet;
 
     public void OnApply(Actor actor)
     {
         actor.BulletSpeed *= 1.45f;
+        actor.ReloadDuration += 0.25f;
     }
 
     public void OnProjectileSpawn(Actor actor, Projectile projectile)

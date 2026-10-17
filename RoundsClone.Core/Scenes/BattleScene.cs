@@ -33,6 +33,7 @@ public class BattleScene : IScene
 
     private readonly List<Projectile> _projectiles = new();
     private readonly List<Projectile> _spawnQueue = new();
+    private readonly List<ToxicCloud> _toxicClouds = new();
 
     // 回合生命周期状态
     private bool _roundEnded = false;
@@ -100,6 +101,12 @@ public class BattleScene : IScene
         _roundEndTimer = 0f;
         _timeScale = 1.0f;
         _projectiles.Clear();
+        _toxicClouds.Clear();
+
+        _player.OnRadiancePulse -= HandleRadiancePulse;
+        _player.OnRadiancePulse += HandleRadiancePulse;
+        _ai.OnRadiancePulse -= HandleRadiancePulse;
+        _ai.OnRadiancePulse += HandleRadiancePulse;
     }
 
     /// <inheritdoc />
@@ -139,7 +146,7 @@ public class BattleScene : IScene
         for (int i = _projectiles.Count - 1; i >= 0; i--)
         {
             var p = _projectiles[i];
-            p.Update(dt, _manager.Particles);
+            p.Update(dt, _manager.Particles, _world);
 
             // 检查副武器格挡力场偏转
             CheckBlockDeflection(p, _player);
@@ -149,6 +156,21 @@ public class BattleScene : IScene
             {
                 _world.RemoveCollider(p.Collider);
                 _projectiles.RemoveAt(i);
+            }
+        }
+
+        // 6.5. 更新毒云弥漫实体
+        if (_toxicClouds.Count > 0)
+        {
+            var actors = new List<Actor> { _player, _ai };
+            for (int i = _toxicClouds.Count - 1; i >= 0; i--)
+            {
+                var cloud = _toxicClouds[i];
+                cloud.Update(dt, actors, _manager.Particles, _manager.Shake);
+                if (cloud.IsExpired)
+                {
+                    _toxicClouds.RemoveAt(i);
+                }
             }
         }
 
@@ -228,7 +250,7 @@ public class BattleScene : IScene
     private void CheckHazardCollision(Collider actorCol, Collider otherCol, CollisionManifold m)
     {
         Actor? actor = (actorCol.Body == _player.Body) ? _player : (actorCol.Body == _ai.Body ? _ai : null);
-        if (actor == null || actor.IsDead || actor.IsInvulnerable) return;
+        if (actor == null || actor.IsDead || actor.IsInvulnerable || actor.InvulnerabilityTimer > 0f) return;
 
         var terrain = _map.TerrainObjects.Find(t => t.Collider == otherCol);
         if (terrain != null && terrain.Style == TerrainStyle.HazardSpike)
@@ -247,10 +269,20 @@ public class BattleScene : IScene
         if (otherCol is CircleCollider cc && (cc.Body == _player.Body || cc.Body == _ai.Body))
         {
             Actor? hitTarget = (cc.Body == _player.Body) ? _player : _ai;
-            if (hitTarget != proj.Owner && !hitTarget.IsInvulnerable)
+            if (hitTarget != proj.Owner && !hitTarget.IsInvulnerable && hitTarget.InvulnerabilityTimer <= 0f)
             {
                 Vector2 hitForce = MathHelper2D.SafeNormalize(proj.Body.Velocity) * proj.KnockbackImpulse;
                 hitTarget.TakeDamage(proj.Damage, proj.Owner, hitForce, _manager.Particles, _manager.Shake);
+
+                // 以战养战 (Scavenger)：直接子弹伤害命中即刻返还 1 发弹药
+                if (proj.Owner != null && proj.Owner.HasScavenger)
+                {
+                    if (proj.Owner.CurrentAmmo < proj.Owner.MaxAmmo)
+                    {
+                        proj.Owner.CurrentAmmo = Math.Min(proj.Owner.MaxAmmo, proj.Owner.CurrentAmmo + 1);
+                        _manager.Particles.EmitHitSparks(proj.Owner.Body.Position, Vector2.UnitY, ColorPalette.PlayerGreen, 6);
+                    }
+                }
 
                 TriggerProjectileImpact(proj, hitTarget, m);
                 proj.Destroy();
@@ -278,6 +310,29 @@ public class BattleScene : IScene
             if (proj.RemainingBounces > 0)
             {
                 proj.OnBounce(m.Normal);
+
+                // 目标折射 (Target Bounce)：仅在碰到墙面时定位一次，朝敌人方向折射一次后回归常规物理反射
+                if (proj.HasTargetBounce && !proj.HasTargetBounced)
+                {
+                    proj.HasTargetBounced = true;
+                    Actor enemy = (proj.Owner == _player) ? _ai : _player;
+                    if (!enemy.IsDead)
+                    {
+                        Vector2 toEnemy = enemy.Body.Position - m.ContactPoint;
+                        if (toEnemy.LengthSquared() > 0.01f)
+                        {
+                            Vector2 targetDir = MathHelper2D.SafeNormalize(toEnemy);
+                            if (Vector2.Dot(targetDir, m.Normal) < 0.15f)
+                            {
+                                targetDir = MathHelper2D.SafeNormalize(targetDir + m.Normal * 0.5f);
+                            }
+                            float speed = MathF.Max(proj.Body.Velocity.Length(), 720f);
+                            proj.Body.Velocity = targetDir * speed;
+                            _manager.Particles.EmitHitSparks(m.ContactPoint, targetDir, Color.Yellow, 12);
+                        }
+                    }
+                }
+
                 foreach (var card in proj.Owner.AppliedCards)
                 {
                     card.OnProjectileBounce(proj, m, SpawnProjectile, _manager.Particles);
@@ -299,6 +354,29 @@ public class BattleScene : IScene
             if (proj.RemainingBounces > 0)
             {
                 proj.OnBounce(m.Normal);
+
+                // 目标折射 (Target Bounce)：仅在碰到墙面时定位一次，朝敌人方向折射一次后回归常规物理反射
+                if (proj.HasTargetBounce && !proj.HasTargetBounced)
+                {
+                    proj.HasTargetBounced = true;
+                    Actor enemy = (proj.Owner == _player) ? _ai : _player;
+                    if (!enemy.IsDead)
+                    {
+                        Vector2 toEnemy = enemy.Body.Position - m.ContactPoint;
+                        if (toEnemy.LengthSquared() > 0.01f)
+                        {
+                            Vector2 targetDir = MathHelper2D.SafeNormalize(toEnemy);
+                            if (Vector2.Dot(targetDir, m.Normal) < 0.15f)
+                            {
+                                targetDir = MathHelper2D.SafeNormalize(targetDir + m.Normal * 0.5f);
+                            }
+                            float speed = MathF.Max(proj.Body.Velocity.Length(), 720f);
+                            proj.Body.Velocity = targetDir * speed;
+                            _manager.Particles.EmitHitSparks(m.ContactPoint, targetDir, Color.Yellow, 12);
+                        }
+                    }
+                }
+
                 foreach (var card in proj.Owner.AppliedCards)
                 {
                     card.OnProjectileBounce(proj, m, SpawnProjectile, _manager.Particles);
@@ -320,6 +398,12 @@ public class BattleScene : IScene
     private void TriggerProjectileImpact(Projectile proj, Actor? hitTarget, CollisionManifold m)
     {
         Vector2 impactPos = proj.Body.Position;
+
+        // 毒云弥漫 (Toxic Cloud)：子弹撞击留下滞留 3.5 秒减速毒雾
+        if (proj.SpawnsToxicCloud)
+        {
+            _toxicClouds.Add(new ToxicCloud(impactPos, proj.Owner, 3.5f, 85f));
+        }
 
         // 1. 触发所有已挂载卡牌的 OnProjectileHit 拦截器
         foreach (var card in proj.Owner.AppliedCards)
@@ -432,6 +516,11 @@ public class BattleScene : IScene
         _map.Draw(batcher, spriteBatch);
         _manager.Particles.Draw(batcher, spriteBatch);
 
+        foreach (var cloud in _toxicClouds)
+        {
+            cloud.Draw(batcher, spriteBatch);
+        }
+
         foreach (var p in _projectiles)
         {
             p.Draw(batcher, spriteBatch);
@@ -477,9 +566,26 @@ public class BattleScene : IScene
         // 保持批处理开启返回，以便匹配宿主 RoundsGame.Draw 的统一 End() 调用
     }
 
+    private void HandleRadiancePulse(Actor source)
+    {
+        Actor target = (source == _player) ? _ai : _player;
+        if (!target.IsDead && !target.IsInvulnerable && target.InvulnerabilityTimer <= 0f)
+        {
+            float dist = Vector2.Distance(source.Body.Position, target.Body.Position);
+            if (dist <= 135f)
+            {
+                Vector2 blastDir = MathHelper2D.SafeNormalize(target.Body.Position - source.Body.Position);
+                target.TakeDamage(10f, source, blastDir * 360f, _manager.Particles, _manager.Shake);
+                _manager.Particles.EmitHitSparks(target.Body.Position, blastDir, Color.Gold, 12);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public void Exit()
     {
+        _player.OnRadiancePulse -= HandleRadiancePulse;
+        _ai.OnRadiancePulse -= HandleRadiancePulse;
         _map.CleanPhysicsWorld(_world);
     }
 }

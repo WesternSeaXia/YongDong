@@ -11,7 +11,7 @@ public class RapidFireCard : ICardPlugin
 {
     public string Id => "card_rapid_fire";
     public string Name => "极速连发";
-    public string Description => "射速 +65%\n每次发射子弹 +1\n弹匣容量 +3";
+    public string Description => "每次发射子弹 +1\n射速 +65%\n单发伤害 -30%\n散布 +15%";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Bullet;
 
@@ -19,9 +19,9 @@ public class RapidFireCard : ICardPlugin
     {
         actor.FireRateCooldown *= 0.55f;
         actor.BulletsPerShot += 1;
-        actor.BulletSpread += 0.12f;
-        actor.MaxAmmo += 3;
+        actor.BulletSpread += 0.15f;
+        actor.MaxAmmo += 2;
         actor.CurrentAmmo = actor.MaxAmmo;
-        actor.ReloadDuration *= 0.85f;
+        actor.BulletDamage *= 0.70f;
     }
 }

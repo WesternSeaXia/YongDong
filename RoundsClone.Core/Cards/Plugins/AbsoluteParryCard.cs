@@ -12,7 +12,7 @@ public class AbsoluteParryCard : ICardPlugin
 {
     public string Id => "card_absolute_parry";
     public string Name => "绝对反弹";
-    public string Description => "副武器冷却 -35%\n反弹伤害 +50%";
+    public string Description => "副武器冷却 -35%\n反弹伤害 +50%\n最大生命 -15";
     public CardTier Tier => CardTier.Legendary;
     public IconType Icon => IconType.Shield;
 
@@ -26,5 +26,9 @@ public class AbsoluteParryCard : ICardPlugin
         {
             actor.SubWeapon.Cooldown *= 0.8f;
         }
+
+        actor.MaxHealth = System.MathF.Max(30f, actor.MaxHealth - 15f);
+        actor.CurrentHealth = System.MathF.Min(actor.CurrentHealth, actor.MaxHealth);
+        actor.RecalculateHealthScaling();
     }
 }

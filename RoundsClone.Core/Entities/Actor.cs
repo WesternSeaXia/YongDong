@@ -127,6 +127,21 @@ public class Actor
     public float PoisonTimer { get; set; } = 0f;
     public bool IsWallSliding { get; private set; } = false;
 
+    // --- 进阶卡牌机制开关与计时器 ---
+    public bool HasPhoenixRevive { get; set; } = false;
+    public bool HasUsedPhoenix { get; set; } = false;
+    public float InvulnerabilityTimer { get; set; } = 0f;
+    public bool HasRadiance { get; set; } = false;
+    public bool HasShieldsUp { get; set; } = false;
+    public bool HasTeleport { get; set; } = false;
+    public bool HasTargetBounce { get; set; } = false;
+    public bool HasGrowBullet { get; set; } = false;
+    public bool HasSneakyBullet { get; set; } = false;
+    public bool HasToxicCloud { get; set; } = false;
+    public bool HasScavenger { get; set; } = false;
+    public float RadianceTimer { get; set; } = 0f;
+    public event Action<Actor>? OnRadiancePulse;
+
     /// <summary>
     /// 当前归一化的瞄准朝向矢量。
     /// </summary>
@@ -233,7 +248,7 @@ public class Actor
         UpdateWeaponAndReload(dt, input, particles, shake, onSpawnProjectile);
 
         // 5. 更新副武器
-        UpdateSubWeapon(dt, input);
+        UpdateSubWeapon(dt, input, world, particles, shake);
 
         // 6. 更新果冻形变与竹节四肢角弹簧动画器
         Squash.Update(dt);
@@ -243,6 +258,12 @@ public class Actor
     private void UpdateStatusEffects(float dt, ParticleSystem particles, ScreenShake shake)
     {
         if (HitFlashTimer > 0f) HitFlashTimer -= dt;
+        if (InvulnerabilityTimer > 0f)
+        {
+            InvulnerabilityTimer -= dt;
+            if (InvulnerabilityTimer < 0f) InvulnerabilityTimer = 0f;
+        }
+
         if (PoisonTimer > 0f)
         {
             PoisonTimer -= dt;
@@ -433,6 +454,19 @@ public class Actor
         if (IsReloading)
         {
             ReloadTimer -= dt;
+
+            // 换弹日冕 (Radiance)：换弹期间持续向四周脉冲辐射太阳能量波
+            if (HasRadiance)
+            {
+                RadianceTimer += dt;
+                if (RadianceTimer >= 0.28f)
+                {
+                    RadianceTimer = 0f;
+                    particles.EmitExplosion(Body.Position, 75f, Color.Gold, 12);
+                    OnRadiancePulse?.Invoke(this);
+                }
+            }
+
             if (ReloadTimer <= 0f)
             {
                 ReloadTimer = 0f;
@@ -449,13 +483,34 @@ public class Actor
         }
     }
 
-    private void UpdateSubWeapon(float dt, ControlInputState input)
+    private void UpdateSubWeapon(float dt, ControlInputState input, CollisionWorld? world, ParticleSystem particles, ScreenShake shake)
     {
         if (SubWeapon == null) return;
 
         SubWeapon.Update(dt);
         if (input.IsSecondaryDown && SubWeapon.TryActivate(this, _currentAim))
         {
+            // 瞬移折跃机制 (Teleport)：在释放冲刺/副武器时，沿瞄准准星发射射线检测墙体距离，并在障碍物前安全贴边停步
+            if (HasTeleport && world != null)
+            {
+                const float maxTeleportDist = 280f;
+                Vector2 aimDir = _currentAim.LengthSquared() > 0.01f ? MathHelper2D.SafeNormalize(_currentAim) : Vector2.UnitX;
+                var hit = world.Raycast(Body.Position, aimDir, maxTeleportDist, Collider);
+                float actualDist = maxTeleportDist;
+                if (hit.HasHit)
+                {
+                    actualDist = MathF.Max(0f, hit.Distance - Radius - 8f);
+                }
+
+                Vector2 oldPos = Body.Position;
+                Body.Position += aimDir * actualDist;
+                Body.Velocity = Vector2.Zero;
+
+                particles.EmitHitSparks(oldPos, -aimDir, ThemeColor, 12);
+                particles.EmitHitSparks(Body.Position, aimDir, Color.Cyan, 18);
+                shake.AddTrauma(0.25f);
+            }
+
             foreach (var card in AppliedCards)
             {
                 card.OnSecondaryUsed(this, SubWeapon);
@@ -512,7 +567,11 @@ public class Actor
                 ExplosionRadius = ExplosionRadius,
                 IsPoisonous = PoisonBullets,
                 HasImplosion = ImplosionBullets,
-                SplitOnBounceCount = SplitOnBounceCount
+                SplitOnBounceCount = SplitOnBounceCount,
+                IsGrowBullet = HasGrowBullet,
+                IsSneakyBullet = HasSneakyBullet,
+                HasTargetBounce = HasTargetBounce,
+                SpawnsToxicCloud = HasToxicCloud
             };
 
             foreach (var card in AppliedCards)
@@ -522,6 +581,20 @@ public class Actor
 
             onSpawnProjectile(proj);
         }
+
+        // 最后一击之盾 (Shields Up)：射出弹匣最后一发时自动激发力场护盾/格挡防御
+        if (HasShieldsUp && CurrentAmmo == 0)
+        {
+            if (SubWeapon is BlockSubWeapon block)
+            {
+                block.ForceActivate(this);
+            }
+            else
+            {
+                InvulnerabilityTimer = MathF.Max(InvulnerabilityTimer, 0.45f);
+                particles.EmitHitSparks(Body.Position, Vector2.UnitY, ColorPalette.PlayerBlue, 15);
+            }
+        }
     }
 
     /// <summary>
@@ -529,7 +602,25 @@ public class Actor
     /// </summary>
     public void TakeDamage(float amount, Actor? attacker, Vector2 hitForce, ParticleSystem particles, ScreenShake shake)
     {
-        if (IsInvulnerable || IsDead) return;
+        if (IsInvulnerable || InvulnerabilityTimer > 0f || IsDead) return;
+
+        // 凤凰涅槃 (Phoenix)：受到致死伤害时满血满弹复活 1 次，伴随浮空冲击与 1.2 秒无敌金身
+        if (CurrentHealth - amount <= 0f && HasPhoenixRevive && !HasUsedPhoenix)
+        {
+            HasUsedPhoenix = true;
+            CurrentHealth = MaxHealth;
+            CurrentAmmo = MaxAmmo;
+            ReloadTimer = 0f;
+            InvulnerabilityTimer = 1.2f;
+            HitFlashTimer = 0.5f;
+
+            Body.Velocity = new Vector2(Body.Velocity.X * 0.25f, -340f);
+            Squash.ApplyStretch(Vector2.UnitY, 0.45f);
+            particles.EmitExplosion(Body.Position, 95f, Color.Gold, 28);
+            particles.EmitHitSparks(Body.Position, -Vector2.UnitY, ColorPalette.ExplosiveOrange, 20);
+            shake.AddTrauma(0.55f);
+            return;
+        }
 
         CurrentHealth = MathF.Max(0f, CurrentHealth - amount);
         HitFlashTimer = 0.08f;
@@ -570,6 +661,9 @@ public class Actor
         CurrentFireCooldown = 0f;
         PoisonTimer = 0f;
         HitFlashTimer = 0f;
+        HasUsedPhoenix = false;
+        InvulnerabilityTimer = 0f;
+        RadianceTimer = 0f;
         _groundCoyoteTimer = 0f;
         _wallCoyoteTimer = 0f;
         _jumpBufferTimer = 0f;

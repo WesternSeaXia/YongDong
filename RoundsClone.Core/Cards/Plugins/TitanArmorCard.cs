@@ -11,7 +11,7 @@ public class TitanArmorCard : ICardPlugin
 {
     public string Id => "card_titan_armor";
     public string Name => "泰坦装甲";
-    public string Description => "最大生命 +80";
+    public string Description => "最大生命 +80\n移动推力 -15%\n换弹时间 +0.3s";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Heart;
 
@@ -19,6 +19,8 @@ public class TitanArmorCard : ICardPlugin
     {
         actor.MaxHealth += 80f;
         actor.CurrentHealth += 80f;
+        actor.ReloadDuration += 0.30f;
         actor.RecalculateHealthScaling();
+        actor.MoveForce *= 0.85f;
     }
 }

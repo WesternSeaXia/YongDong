@@ -14,7 +14,7 @@ public class ClusterBombCard : ICardPlugin
 {
     public string Id => "card_cluster_bomb";
     public string Name => "集束爆破";
-    public string Description => "命中触发范围爆破\n弹匣容量 +1";
+    public string Description => "命中触发范围爆破\n弹匣容量 +1\n换弹时间 +0.35s";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Bomb;
 
@@ -23,6 +23,7 @@ public class ClusterBombCard : ICardPlugin
         actor.ExplosionRadius = MathF.Max(actor.ExplosionRadius, 110f);
         actor.MaxAmmo += 1;
         actor.CurrentAmmo = actor.MaxAmmo;
+        actor.ReloadDuration += 0.35f;
     }
 
     public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
