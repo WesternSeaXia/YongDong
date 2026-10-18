@@ -11,7 +11,7 @@ public class ToxicCloudCard : ICardPlugin
 {
     public string Id => "card_toxic_cloud";
     public string Name => "毒云弥漫";
-    public string Description => "命中遗留持续毒雾\n区域减速 35% 腐蚀扣血\n换弹时间 +0.3s";
+    public string Description => "每次碰撞生成持续毒雾\n毒雾伤害 10点/秒\n区域减速 35%\n换弹时间 +0.3s";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Poison;
 

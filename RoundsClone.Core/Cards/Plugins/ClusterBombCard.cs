@@ -20,7 +20,7 @@ public class ClusterBombCard : ICardPlugin
 
     public void OnApply(Actor actor)
     {
-        actor.ExplosionRadius = MathF.Max(actor.ExplosionRadius, 110f);
+        actor.ExplosionRadius = MathF.Max(actor.ExplosionRadius, 100f);
         actor.MaxAmmo += 1;
         actor.CurrentAmmo = actor.MaxAmmo;
         actor.ReloadDuration += 0.35f;
@@ -28,12 +28,12 @@ public class ClusterBombCard : ICardPlugin
 
     public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
     {
-        particles.EmitExplosion(projectile.Body.Position, 140f, ColorPalette.ExplosiveOrange, 40);
+        particles.EmitExplosion(projectile.Body.Position, 100f, ColorPalette.ExplosiveOrange, 40);
         shake.AddTrauma(0.50f);
     }
 
     public void OnProjectileBounce(Projectile projectile, CollisionManifold manifold, Action<Projectile> spawnProjectile, ParticleSystem particles)
     {
-        particles.EmitExplosion(projectile.Body.Position, 95f, ColorPalette.ExplosiveOrange, 22);
+        particles.EmitExplosion(projectile.Body.Position, 75f, ColorPalette.ExplosiveOrange, 22);
     }
 }

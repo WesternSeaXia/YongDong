@@ -89,14 +89,15 @@ public class Actor
     // --- 主武器与弹匣换弹属性 ---
     public int MaxAmmo { get; set; } = 3;
     public int CurrentAmmo { get; set; } = 3;
-    public float ReloadDuration { get; set; } = 1.45f;
+    public float ReloadDuration { get; set; } = 1.5f;
     public float ReloadTimer { get; set; } = 0f;
     public bool IsReloading => ReloadTimer > 0f;
 
     public float FireRateCooldown { get; set; } = 0.35f;
     public float CurrentFireCooldown { get; set; } = 0f;
-    public float BulletDamage { get; set; } = 28f;
+    public float BulletDamage { get; set; } = 25f;
     public float BulletSpeed { get; set; } = 1200f;
+    public float BulletSizeMultiplier { get; set; } = 1.0f;
 
     /// <summary>
     /// 初始子弹后坐力冲量（已调低以避免过度震退，配合身体/脚物理分离回正）。
@@ -125,6 +126,10 @@ public class Actor
     public bool IsInvulnerable { get; set; } = false;
     public float HitFlashTimer { get; set; } = 0f;
     public float PoisonTimer { get; set; } = 0f;
+    public float PoisonDps { get; set; } = 0f;
+    public Actor? PoisonSource { get; set; } = null;
+    public float SlowTimer { get; set; } = 0f;
+    public float SlowFactor { get; set; } = 1.0f;
     public bool IsWallSliding { get; private set; } = false;
 
     // --- 进阶卡牌机制开关与计时器 ---
@@ -139,8 +144,69 @@ public class Actor
     public bool HasSneakyBullet { get; set; } = false;
     public bool HasToxicCloud { get; set; } = false;
     public bool HasScavenger { get; set; } = false;
+    public bool HasVampiricLeech { get; set; } = false;
+    public float LifestealRatio { get; set; } = 0f;
+    public float SpeedBoostTimer { get; set; } = 0f;
+    public float SpeedBoostFactor { get; set; } = 1.0f;
     public float RadianceTimer { get; set; } = 0f;
     public event Action<Actor>? OnRadiancePulse;
+
+    /// <summary>
+    /// 为角色施加移动加速增益（在持续时间内提升移动推力）。
+    /// </summary>
+    public void ApplySpeedBoost(float duration, float factor = 1.5f)
+    {
+        SpeedBoostTimer = MathF.Max(SpeedBoostTimer, duration);
+        SpeedBoostFactor = MathF.Max(SpeedBoostFactor, factor);
+    }
+
+    private readonly List<FrostCrystalData> _frostCrystals = new();
+    public IReadOnlyList<FrostCrystalData> FrostCrystals => _frostCrystals;
+
+    /// <summary>
+    /// 为角色施加移动减速负面状态，并在身体上随机生成晶莹的多面双锥棱柱冰晶。
+    /// </summary>
+    public void ApplySlow(float duration, float factor = 0.5f)
+    {
+        SlowTimer = MathF.Max(SlowTimer, duration);
+        SlowFactor = MathF.Min(SlowFactor, factor);
+
+        if (_frostCrystals.Count == 0)
+        {
+            GenerateRandomFrostCrystals();
+        }
+    }
+
+    private void GenerateRandomFrostCrystals()
+    {
+        _frostCrystals.Clear();
+        var rand = Random.Shared;
+        int count = rand.Next(5, 8); // 随机 5 ~ 7 枚附着在身上的双锥棱柱冰晶
+        for (int i = 0; i < count; i++)
+        {
+            float r = MathF.Sqrt((float)rand.NextDouble()) * (Radius * 0.85f);
+            float theta = (float)(rand.NextDouble() * MathHelper.TwoPi);
+            Vector2 offset = new(MathF.Cos(theta) * r, MathF.Sin(theta) * r);
+            float angle = (float)(rand.NextDouble() * MathHelper.TwoPi);
+            float prismLen = (float)(rand.NextDouble() * 5.0 + 10.0); // 10.0px ~ 15.0px 棱柱长度
+            float prismW = (float)(rand.NextDouble() * 3.5 + 8.0);    // 8.0px ~ 11.5px 棱柱宽度（加粗）
+            float pyrH = (float)(rand.NextDouble() * 2.5 + 5.5);      // 5.5px ~ 8.0px 上下多棱锥尖端高
+            _frostCrystals.Add(new FrostCrystalData(offset, angle, prismLen, prismW, pyrH));
+        }
+    }
+
+    /// <summary>
+    /// 为角色施加带伤害来源归属的剧毒持续腐蚀。
+    /// </summary>
+    public void ApplyPoison(Actor? source, float totalPoisonDamage, float duration = 4.0f)
+    {
+        if (duration <= 0f) return;
+        float remaining = PoisonDps * PoisonTimer;
+        float newTotal = remaining + totalPoisonDamage;
+        PoisonTimer = duration;
+        PoisonDps = newTotal / duration;
+        PoisonSource = source;
+    }
 
     /// <summary>
     /// 当前归一化的瞄准朝向矢量。
@@ -178,7 +244,8 @@ public class Actor
     }
 
     /// <summary>
-    /// 根据当前最大生命值动态重新计算角色体型、物理质量、移动推力与跳跃冲量。
+    /// 根据当前最大生命值动态重新计算角色体型与物理碰撞体半径。
+    /// （移动推力、加速度与跳跃高度不再受体型牵连，统一由基础物理参数或卡牌词条显式控制）
     /// </summary>
     public void RecalculateHealthScaling()
     {
@@ -186,9 +253,7 @@ public class Actor
 
         Radius = BaseRadius * MathF.Pow(ratio, 0.40f);
         Collider.Radius = Radius;
-        Body.Mass = BaseMass * ratio;
-        MoveForce = BaseMoveForce * MathF.Pow(1.0f / ratio, 0.35f);
-        JumpImpulse = BaseJumpImpulse * MathF.Pow(1.0f / ratio, 0.25f);
+        Body.Mass = BaseMass;
     }
 
     /// <summary>
@@ -218,26 +283,37 @@ public class Actor
             float moveInput = input.MoveVector.X;
             if (MathF.Abs(moveInput) > 0.05f)
             {
+                float slowMult = (SlowTimer > 0f ? SlowFactor : 1.0f);
+                float boostMult = (SpeedBoostTimer > 0f ? SpeedBoostFactor : 1.0f);
+                float currentMoveForce = MoveForce * slowMult * boostMult;
                 if (Body.IsGrounded && !Body.IsOnBouncySurface && MathF.Abs(Body.GroundNormal.X) > 0.05f)
                 {
                     // 站在斜坡上移动：推力沿斜坡切线方向施加，让上下坡速度与平地完全一致
                     Vector2 tangent = MathHelper2D.SafeNormalize(new Vector2(-Body.GroundNormal.Y, Body.GroundNormal.X));
                     if (tangent.X < 0f) tangent = -tangent; // 确保正切线朝右
-                    Body.AddForce(tangent * (moveInput * MoveForce));
+                    Body.AddForce(tangent * (moveInput * currentMoveForce));
                 }
                 else
                 {
                     // 平地或空中：常规水平推力
-                    Body.AddForce(new Vector2(moveInput * MoveForce, 0f));
+                    Body.AddForce(new Vector2(moveInput * currentMoveForce, 0f));
                 }
             }
             else if (Body.IsGrounded && !Body.IsOnBouncySurface && MathF.Abs(Body.GroundNormal.X) > 0.05f)
             {
-                // 玩家松手未输入时：在斜坡上站定如平地，无条件彻底锁死滑动速度
+                // 玩家松手未输入时：斜坡提供静摩擦防滑，防止重力自然滑坡；但不阻断击退与黑洞等强外力冲量
                 Vector2 tangent = MathHelper2D.SafeNormalize(new Vector2(-Body.GroundNormal.Y, Body.GroundNormal.X));
                 float tangentVel = Vector2.Dot(Body.Velocity, tangent);
-                Body.Velocity -= tangent * tangentVel;
-                Body.Velocity = new Vector2(0f, 0f);
+                if (MathF.Abs(tangentVel) < 140f)
+                {
+                    // 自然重力微弱滑坡时彻底锁紧站定
+                    Body.Velocity -= tangent * tangentVel;
+                }
+                else
+                {
+                    // 受到外界强冲量（黑洞牵引、爆炸冲击波、子弹击退）时应用平滑阻尼衰减，杜绝一帧瞬间死锁抹除速度
+                    Body.Velocity -= tangent * (tangentVel * MathF.Min(1f, dt * 5.0f));
+                }
             }
         }
 
@@ -245,7 +321,7 @@ public class Actor
         UpdateJumpAndWallSlide(dt, input, world, particles, shake);
 
         // 4. 更新主武器射击与弹匣换弹
-        UpdateWeaponAndReload(dt, input, particles, shake, onSpawnProjectile);
+        UpdateWeaponAndReload(dt, input, world, particles, shake, onSpawnProjectile);
 
         // 5. 更新副武器
         UpdateSubWeapon(dt, input, world, particles, shake);
@@ -264,13 +340,59 @@ public class Actor
             if (InvulnerabilityTimer < 0f) InvulnerabilityTimer = 0f;
         }
 
+        if (SlowTimer > 0f)
+        {
+            SlowTimer -= dt;
+            if (SlowTimer <= 0f)
+            {
+                SlowFactor = 1.0f;
+                _frostCrystals.Clear();
+            }
+            if (Random.Shared.NextDouble() < 0.28)
+            {
+                Vector2 sparkPos = Body.Position + new Vector2(
+                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.4f,
+                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.4f
+                );
+                particles.EmitHitSparks(sparkPos, -Vector2.UnitY, ColorPalette.FreezeCyan, 2);
+            }
+        }
+        else if (_frostCrystals.Count > 0)
+        {
+            _frostCrystals.Clear();
+        }
+
         if (PoisonTimer > 0f)
         {
             PoisonTimer -= dt;
-            TakeDamage(12f * dt, null, Vector2.Zero, particles, shake);
-            if (Random.Shared.NextDouble() < 0.2)
+            float dmg = PoisonDps > 0f ? (PoisonDps * dt) : (12f * dt);
+            TakeDamage(dmg, PoisonSource, Vector2.Zero, particles, shake);
+            if (Random.Shared.NextDouble() < 0.25)
             {
                 particles.EmitHitSparks(Body.Position, Vector2.UnitY, ColorPalette.PoisonGreen, 2);
+            }
+            if (PoisonTimer <= 0f)
+            {
+                PoisonDps = 0f;
+                PoisonSource = null;
+            }
+        }
+
+        if (SpeedBoostTimer > 0f)
+        {
+            SpeedBoostTimer -= dt;
+            if (SpeedBoostTimer <= 0f)
+            {
+                SpeedBoostFactor = 1.0f;
+            }
+            if (Random.Shared.NextDouble() < 0.30)
+            {
+                Vector2 sparkPos = Body.Position + new Vector2(
+                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.2f,
+                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.2f
+                );
+                Vector2 trailDir = Body.Velocity.LengthSquared() > 10f ? -MathHelper2D.SafeNormalize(Body.Velocity) : -Vector2.UnitY;
+                particles.EmitHitSparks(sparkPos, trailDir, ColorPalette.PlayerGreen, 2);
             }
         }
     }
@@ -445,6 +567,7 @@ public class Actor
     private void UpdateWeaponAndReload(
         float dt,
         ControlInputState input,
+        CollisionWorld? world,
         ParticleSystem particles,
         ScreenShake shake,
         Action<Projectile> onSpawnProjectile)
@@ -458,18 +581,24 @@ public class Actor
             // 换弹日冕 (Radiance)：换弹期间持续向四周脉冲辐射太阳能量波
             if (HasRadiance)
             {
-                RadianceTimer += dt;
-                if (RadianceTimer >= 0.28f)
+                float elapsedReload = ReloadDuration - ReloadTimer;
+                // 日冕由小到大平滑展开（展开期 0.35s），展开完成达到最大范围后才开始产生攻击判定并脉冲
+                if (elapsedReload >= 0.35f)
                 {
-                    RadianceTimer = 0f;
-                    particles.EmitExplosion(Body.Position, 75f, Color.Gold, 12);
-                    OnRadiancePulse?.Invoke(this);
+                    RadianceTimer += dt;
+                    if (RadianceTimer >= 0.28f)
+                    {
+                        RadianceTimer = 0f;
+                        particles.EmitExplosion(Body.Position, 75f, Color.Gold, 12);
+                        OnRadiancePulse?.Invoke(this);
+                    }
                 }
             }
 
             if (ReloadTimer <= 0f)
             {
                 ReloadTimer = 0f;
+                RadianceTimer = 0f;
                 CurrentAmmo = MaxAmmo;
                 float aimSign = _currentAim.X >= 0f ? 1f : -1f;
                 LimbAnimator.OnReloadComplete(aimSign);
@@ -479,7 +608,7 @@ public class Actor
         }
         else if (input.IsFireDown && CurrentFireCooldown <= 0f && CurrentAmmo > 0)
         {
-            Shoot(particles, shake, onSpawnProjectile);
+            Shoot(world, particles, shake, onSpawnProjectile);
         }
     }
 
@@ -520,34 +649,41 @@ public class Actor
 
     /// <summary>
     /// 执行一次射击：消耗弹匣子弹、激发脚底静摩擦与躯干后坐位移、自动回正并派生子弹实体。
+    /// 包含枪管穿模防护：若枪口伸进平台/墙体内部，自动将出膛点紧贴收束在近表面，杜绝子弹隔板穿墙生成。
     /// </summary>
-    private void Shoot(ParticleSystem particles, ScreenShake shake, Action<Projectile> onSpawnProjectile)
+    private void Shoot(CollisionWorld? world, ParticleSystem particles, ScreenShake shake, Action<Projectile> onSpawnProjectile)
     {
         CurrentFireCooldown = FireRateCooldown;
+        bool isLastBullet = (CurrentAmmo == 1);
         CurrentAmmo--;
         if (CurrentAmmo <= 0)
         {
             ReloadTimer = ReloadDuration;
+            RadianceTimer = 0f;
         }
 
         Vector2 recoilDir = -_currentAim;
 
+        // 后坐力与子弹伤害关联：以 25 点基准伤害为标准后坐力（100f），伤害越低单发后坐力越低
+        // 彻底解决高射速/加特林类低伤害武器因密集发射全额后坐力导致反推上天的物理问题
+        float damageRecoilScale = MathF.Max(0.05f, BulletDamage / 25f);
+        float effectiveRecoil = RecoilImpulse * damageRecoilScale;
+
         // 身体与脚的物理分离：脚底静摩擦固定，躯干后退并在射击完成后自动平滑回正
-        LimbAnimator.ApplyShootingRecoil(recoilDir, 160f);
+        LimbAnimator.ApplyShootingRecoil(recoilDir, 160f * MathF.Min(1.5f, damageRecoilScale));
 
         if (Body.IsGrounded)
         {
             // 着地时脚掌静摩擦力吸收大部分冲量，避免整个人生硬后滑
-            Body.ApplyImpulse(recoilDir * (RecoilImpulse * 0.40f));
+            Body.ApplyImpulse(recoilDir * (effectiveRecoil * 0.40f));
         }
         else
         {
-            Body.ApplyImpulse(recoilDir * RecoilImpulse);
+            Body.ApplyImpulse(recoilDir * effectiveRecoil);
         }
 
-        Squash.ApplySquash(recoilDir, 0.20f);
-        particles.EmitHitSparks(Body.Position + _currentAim * (Radius + 16f), _currentAim, ThemeColor, 7);
-        shake.AddTrauma(0.14f);
+        Squash.ApplySquash(recoilDir, 0.20f * MathF.Min(1.5f, damageRecoilScale));
+        shake.AddTrauma(0.14f * MathF.Min(1.5f, damageRecoilScale));
 
         float baseAngle = MathF.Atan2(_currentAim.Y, _currentAim.X);
         float step = BulletsPerShot > 1 ? BulletSpread / (BulletsPerShot - 1) : 0f;
@@ -558,7 +694,23 @@ public class Actor
             float angle = startAngle + i * step + (float)(Random.Shared.NextDouble() - 0.5) * 0.04f;
             Vector2 dir = new(MathF.Cos(angle), MathF.Sin(angle));
 
-            Vector2 spawnPos = Body.Position + dir * (Radius + 16f);
+            float desiredMuzzleDist = Radius + 16f;
+            Vector2 spawnPos = Body.Position + dir * desiredMuzzleDist;
+
+            // 枪管穿模防护：从角色中心沿射击方向检查是否有平台/墙体阻隔，杜绝枪管伸进方块后子弹直接从方块背面生成穿墙
+            if (world != null)
+            {
+                var muzzleHit = world.CircleCast(Body.Position, 4.0f, dir, desiredMuzzleDist, Collider);
+                if (muzzleHit.HasHit)
+                {
+                    // 枪口伸进了障碍物内部：将出膛点紧贴收束在迎弹表面外侧空气中，保留安全裕量杜绝出生时嵌入方块
+                    Vector2 safeDir = muzzleHit.Normal != Vector2.Zero ? muzzleHit.Normal : -dir;
+                    spawnPos = muzzleHit.Point + safeDir * 7.0f;
+                }
+            }
+
+            particles.EmitHitSparks(spawnPos, dir, ThemeColor, 7);
+
             Vector2 bulletVel = dir * BulletSpeed;
 
             var proj = new Projectile(this, spawnPos, bulletVel, BulletDamage, ThemeColor)
@@ -571,8 +723,16 @@ public class Actor
                 IsGrowBullet = HasGrowBullet,
                 IsSneakyBullet = HasSneakyBullet,
                 HasTargetBounce = HasTargetBounce,
-                SpawnsToxicCloud = HasToxicCloud
+                SpawnsToxicCloud = HasToxicCloud,
+                CanScavengeAmmo = !isLastBullet
             };
+
+            if (BulletSizeMultiplier != 1.0f)
+            {
+                proj.Radius = proj.BaseRadius * BulletSizeMultiplier;
+                proj.BaseRadius = proj.Radius;
+                proj.Collider.Radius = proj.Radius;
+            }
 
             foreach (var card in AppliedCards)
             {
@@ -625,6 +785,18 @@ public class Actor
         CurrentHealth = MathF.Max(0f, CurrentHealth - amount);
         HitFlashTimer = 0.08f;
 
+        // 生命虹吸 / 吸血机制：造成的所有伤害（直接命中、剧毒、爆炸、毒雾等）按吸血比例转化为生命恢复
+        if (attacker != null && !attacker.IsDead && attacker != this && amount > 0f)
+        {
+            float lifestealPercent = attacker.LifestealRatio + (attacker.HasVampiricLeech ? 0.30f : 0f);
+            if (lifestealPercent > 0f)
+            {
+                float heal = amount * lifestealPercent;
+                attacker.CurrentHealth = MathF.Min(attacker.MaxHealth, attacker.CurrentHealth + heal);
+                particles.EmitHitSparks(attacker.Body.Position, -Vector2.UnitY, ColorPalette.PlayerGreen, 2);
+            }
+        }
+
         if (hitForce.LengthSquared() > 0.01f)
         {
             Vector2 hitDir = MathHelper2D.SafeNormalize(hitForce);
@@ -660,10 +832,17 @@ public class Actor
         ReloadTimer = 0f;
         CurrentFireCooldown = 0f;
         PoisonTimer = 0f;
+        PoisonDps = 0f;
+        PoisonSource = null;
+        SlowTimer = 0f;
+        SlowFactor = 1.0f;
+        SpeedBoostTimer = 0f;
+        SpeedBoostFactor = 1.0f;
         HitFlashTimer = 0f;
         HasUsedPhoenix = false;
         InvulnerabilityTimer = 0f;
         RadianceTimer = 0f;
+        _frostCrystals.Clear();
         _groundCoyoteTimer = 0f;
         _wallCoyoteTimer = 0f;
         _jumpBufferTimer = 0f;
@@ -676,6 +855,74 @@ public class Actor
         LimbAnimator.Reset();
         RecalculateHealthScaling();
         if (SubWeapon != null) SubWeapon.CurrentCooldown = 0f;
+    }
+
+    /// <summary>
+    /// 重置为初始白板数值并按顺序重新注入指定卡牌列表，用于调试抽屉自由动态增删卡牌。
+    /// </summary>
+    public void RebuildFromCards(IEnumerable<ICardPlugin> cards)
+    {
+        MaxHealth = 100f;
+        CurrentHealth = 100f;
+        MoveForce = BaseMoveForce;
+        JumpImpulse = BaseJumpImpulse;
+        MaxJumps = 1;
+        RemainingJumps = 1;
+        MaxAmmo = 3;
+        CurrentAmmo = 3;
+        ReloadDuration = 1.5f;
+        FireRateCooldown = 0.35f;
+        BulletDamage = 25f;
+        BulletSpeed = 1200f;
+        BulletSizeMultiplier = 1.0f;
+        RecoilImpulse = 100f;
+        BulletSpread = 0f;
+        BulletsPerShot = 1;
+        BulletBounces = 0;
+        ExplosionRadius = 0f;
+        PoisonBullets = false;
+        ImplosionBullets = false;
+        SplitOnBounceCount = 0;
+
+        HasPhoenixRevive = false;
+        HasUsedPhoenix = false;
+        InvulnerabilityTimer = 0f;
+        HasRadiance = false;
+        RadianceTimer = 0f;
+        _frostCrystals.Clear();
+        HasShieldsUp = false;
+        HasTeleport = false;
+        HasTargetBounce = false;
+        HasGrowBullet = false;
+        HasSneakyBullet = false;
+        HasToxicCloud = false;
+        HasScavenger = false;
+        HasVampiricLeech = false;
+        LifestealRatio = 0f;
+        SpeedBoostTimer = 0f;
+        SpeedBoostFactor = 1.0f;
+
+        if (SubWeapon is BlockSubWeapon block)
+        {
+            block.Cooldown = 2.2f;
+        }
+        else if (SubWeapon is DashSubWeapon dash)
+        {
+            dash.Cooldown = 1.6f;
+            dash.DashSpeed = 1450f;
+        }
+
+        AppliedCards.Clear();
+
+        foreach (var card in cards)
+        {
+            AppliedCards.Add(card);
+            card.OnApply(this);
+        }
+
+        RecalculateHealthScaling();
+        CurrentHealth = MaxHealth;
+        CurrentAmmo = MaxAmmo;
     }
 
     /// <summary>

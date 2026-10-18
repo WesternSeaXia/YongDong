@@ -11,22 +11,21 @@ public class HeavyArtilleryCard : ICardPlugin
 {
     public string Id => "card_heavy_artillery";
     public string Name => "重装火炮";
-    public string Description => "伤害 +85%\n弹丸体积 +70%\n换弹时间 +25%\n后坐力 +80%";
+    public string Description => "伤害 +85%\n弹丸体积 +100%\n弹匣容量 -1\n射速 -40%\n后坐力 +85%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Heavy;
 
     public void OnApply(Actor actor)
     {
         actor.BulletDamage *= 1.85f;
-        actor.RecoilImpulse *= 1.8f;
-        actor.FireRateCooldown *= 1.35f;
-        actor.ReloadDuration *= 1.25f;
+        actor.BulletSizeMultiplier += 1.0f;
+        actor.MaxAmmo = Math.Max(1, actor.MaxAmmo - 1);
+        actor.CurrentAmmo = Math.Min(actor.CurrentAmmo, actor.MaxAmmo);
+        actor.FireRateCooldown *= 1.40f;
     }
 
     public void OnProjectileSpawn(Actor actor, Projectile projectile)
     {
-        projectile.Radius *= 1.7f;
-        projectile.Collider.Radius *= 1.7f;
         projectile.KnockbackImpulse *= 2.2f;
     }
 }

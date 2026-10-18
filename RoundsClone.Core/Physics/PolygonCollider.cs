@@ -134,14 +134,16 @@ public class PolygonCollider : Collider
             (int)MathF.Ceiling(maxY - minY)
         );
 
-        // 计算世界边的垂直外向法线
+        // 计算世界边的垂直外向法线（严格确保法线背离多边形几何质心朝外，杜绝顺逆时针拓扑反转导致法线朝内穿模）
         for (int i = 0; i < n; i++)
         {
             Vector2 p1 = _worldVertices[i];
             Vector2 p2 = _worldVertices[(i + 1) % n];
             Vector2 edge = p2 - p1;
-            Vector2 normal = MathHelper2D.SafeNormalize(new Vector2(-edge.Y, edge.X));
-            _edgeNormals[i] = normal;
+            Vector2 normal = new(-edge.Y, edge.X);
+            Vector2 toEdge = (p1 + p2) * 0.5f - Body.Position;
+            if (Vector2.Dot(normal, toEdge) < 0f) normal = -normal;
+            _edgeNormals[i] = MathHelper2D.SafeNormalize(normal);
         }
     }
 }

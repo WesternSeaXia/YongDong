@@ -10,14 +10,17 @@ namespace RoundsClone.Core.Cards;
 public class ShieldsUpCard : ICardPlugin
 {
     public string Id => "card_shields_up";
-    public string Name => "终击之盾";
-    public string Description => "打空弹匣自动触发力场\n反弹来袭弹幕/暂免伤害\n换弹时间 +0.4s";
+    public string Name => "终极之盾";
+    public string Description => "打空弹匣自动触发力场\n反弹来袭弹幕/暂免伤害\n副武器冷却 +30%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Shield;
 
     public void OnApply(Actor actor)
     {
         actor.HasShieldsUp = true;
-        actor.ReloadDuration += 0.40f;
+        if (actor.SubWeapon != null)
+        {
+            actor.SubWeapon.Cooldown *= 1.30f;
+        }
     }
 }

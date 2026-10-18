@@ -110,8 +110,8 @@ public class CollisionWorld
 
                     if (!a.IsEnabled || !b.IsEnabled) continue;
 
-                    // 子弹与子弹之间互不碰撞、互不抵消
-                    if (a.IsProjectile && b.IsProjectile) continue;
+                    // 子弹由连续碰撞检测 (CCD) 专门步进求解，不参与离散 SAT 遍历与刚体冲量，杜绝穿墙、卡角与错误推挤
+                    if (a.IsProjectile || b.IsProjectile) continue;
 
                     // 两个静态物体之间不解算
                     if (a.Body.IsStatic && b.Body.IsStatic) continue;
@@ -606,6 +606,293 @@ public class CollisionWorld
 
         distance = tEnter > 0f ? tEnter : tExit;
         normal = nEnter;
+        return true;
+    }
+
+    /// <summary>
+    /// 查询指定位置周围最近的静态地形表面距离、外向法线与最近接触点（用于气垫排斥力场或避障感知）。
+    /// </summary>
+    public bool QueryClosestSurface(Vector2 position, float maxRadius, out float distance, out Vector2 normal, out Vector2 surfacePoint, Collider? ignoreCollider = null)
+    {
+        distance = maxRadius;
+        normal = Vector2.Zero;
+        surfacePoint = Vector2.Zero;
+        bool found = false;
+        float maxRadiusSq = maxRadius * maxRadius;
+
+        foreach (var col in _colliders)
+        {
+            if (col == ignoreCollider || !col.IsEnabled || col.IsTrigger || col.IsProjectile) continue;
+
+            if (col is BoxCollider box)
+            {
+                Vector2 bPos = box.Body.Position;
+                Vector2 half = box.HalfSize;
+                float cx = MathHelper.Clamp(position.X, bPos.X - half.X, bPos.X + half.X);
+                float cy = MathHelper.Clamp(position.Y, bPos.Y - half.Y, bPos.Y + half.Y);
+                Vector2 closest = new(cx, cy);
+                Vector2 diff = position - closest;
+                float distSq = diff.LengthSquared();
+
+                if (distSq < maxRadiusSq && distSq > 0.0001f)
+                {
+                    float d = MathF.Sqrt(distSq);
+                    if (d < distance)
+                    {
+                        distance = d;
+                        normal = diff / d;
+                        surfacePoint = closest;
+                        found = true;
+                    }
+                }
+            }
+            else if (col is CircleCollider circle)
+            {
+                Vector2 diff = position - circle.Body.Position;
+                float distCenter = diff.Length();
+                float d = distCenter - circle.Radius;
+                if (d > 0.0001f && d < distance)
+                {
+                    distance = d;
+                    normal = MathHelper2D.SafeNormalize(diff);
+                    surfacePoint = circle.Body.Position + normal * circle.Radius;
+                    found = true;
+                }
+            }
+            else if (col is PolygonCollider poly)
+            {
+                var verts = poly.WorldVertices;
+                int n = verts.Length;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector2 p1 = verts[i];
+                    Vector2 p2 = verts[(i + 1) % n];
+                    Vector2 edge = p2 - p1;
+                    float edgeLenSq = edge.LengthSquared();
+                    if (edgeLenSq < 0.0001f) continue;
+
+                    float t = MathHelper.Clamp(Vector2.Dot(position - p1, edge) / edgeLenSq, 0f, 1f);
+                    Vector2 closest = p1 + edge * t;
+                    Vector2 diff = position - closest;
+                    float distSq = diff.LengthSquared();
+
+                    if (distSq < maxRadiusSq && distSq > 0.0001f)
+                    {
+                        float d = MathF.Sqrt(distSq);
+                        if (d < distance)
+                        {
+                            distance = d;
+                            normal = poly.EdgeNormals[i];
+                            surfacePoint = closest;
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// 使用连续几何扫掠 (CircleCast / CCD) 测试圆形截面实体沿指定方向位移时与障碍物的首次接触点与精确法线。
+    /// </summary>
+    public RaycastHit CircleCast(Vector2 origin, float radius, Vector2 direction, float maxDistance, Collider? ignoreCollider = null, Func<Collider, bool>? filter = null)
+    {
+        RaycastHit closestHit = default;
+        closestHit.Distance = maxDistance;
+
+        Vector2 normDir = MathHelper2D.SafeNormalize(direction);
+        if (normDir == Vector2.Zero || maxDistance <= 0f) return closestHit;
+
+        foreach (var col in _colliders)
+        {
+            if (col == ignoreCollider || !col.IsEnabled || col.IsTrigger || col.IsProjectile) continue;
+            if (filter != null && !filter(col)) continue;
+
+            if (col is BoxCollider box)
+            {
+                if (CircleCastBox(origin, radius, normDir, closestHit.Distance, box, out float dist, out Vector2 normal, out Vector2 contactPoint))
+                {
+                    if (dist >= 0f && dist <= closestHit.Distance)
+                    {
+                        closestHit.HasHit = true;
+                        closestHit.Distance = dist;
+                        closestHit.Point = contactPoint;
+                        closestHit.Normal = normal;
+                        closestHit.HitCollider = box;
+                    }
+                }
+            }
+            else if (col is PolygonCollider poly)
+            {
+                if (SatCollision.RayIntersectPolygon(origin, normDir, poly, out float dist, out Vector2 normal, radius))
+                {
+                    if (dist >= 0f && dist <= closestHit.Distance)
+                    {
+                        closestHit.HasHit = true;
+                        closestHit.Distance = dist;
+                        closestHit.Point = origin + normDir * dist;
+                        closestHit.Normal = normal;
+                        closestHit.HitCollider = poly;
+                    }
+                }
+            }
+            else if (col is CircleCollider circle)
+            {
+                if (SatCollision.RayIntersectCircle(origin, normDir, circle.Body.Position, circle.Radius + radius, out float dist, out Vector2 normal))
+                {
+                    if (dist >= 0f && dist <= closestHit.Distance)
+                    {
+                        closestHit.HasHit = true;
+                        closestHit.Distance = dist;
+                        closestHit.Point = circle.Body.Position + normal * circle.Radius;
+                        closestHit.Normal = normal;
+                        closestHit.HitCollider = circle;
+                    }
+                }
+            }
+        }
+
+        return closestHit;
+    }
+
+    private bool CircleCastBox(Vector2 origin, float radius, Vector2 dir, float maxDistance, BoxCollider box, out float distance, out Vector2 normal, out Vector2 contactPoint)
+    {
+        distance = -1f;
+        normal = Vector2.Zero;
+        contactPoint = Vector2.Zero;
+
+        Vector2 bPos = box.Body.Position;
+        Vector2 half = box.HalfSize;
+        Vector2 min = bPos - half;
+        Vector2 max = bPos + half;
+
+        // 1. 起点若已经与 Box 表面发生接触或嵌入
+        float cx = MathHelper.Clamp(origin.X, min.X, max.X);
+        float cy = MathHelper.Clamp(origin.Y, min.Y, max.Y);
+        Vector2 closest = new(cx, cy);
+        Vector2 diff = origin - closest;
+        float distSq = diff.LengthSquared();
+
+        if (distSq <= 0.0001f)
+        {
+            // 圆心严格在 Box 内部：寻找距离最近的外表面，并将法线与接触点精确置于外表面，立即阻止深嵌
+            float leftDist = origin.X - min.X;
+            float rightDist = max.X - origin.X;
+            float topDist = origin.Y - min.Y;
+            float botDist = max.Y - origin.Y;
+            float minEdgeDist = Math.Min(Math.Min(leftDist, rightDist), Math.Min(topDist, botDist));
+
+            distance = 0f;
+            if (minEdgeDist == topDist)
+            {
+                normal = -Vector2.UnitY;
+                contactPoint = new Vector2(origin.X, min.Y);
+            }
+            else if (minEdgeDist == botDist)
+            {
+                normal = Vector2.UnitY;
+                contactPoint = new Vector2(origin.X, max.Y);
+            }
+            else if (minEdgeDist == leftDist)
+            {
+                normal = -Vector2.UnitX;
+                contactPoint = new Vector2(min.X, origin.Y);
+            }
+            else
+            {
+                normal = Vector2.UnitX;
+                contactPoint = new Vector2(max.X, origin.Y);
+            }
+            return true;
+        }
+
+        // 圆心在 Box 外部：若运动方向正背离该物体朝外脱离，几何上绝对不可能相交，坚决放行脱离
+        if (Vector2.Dot(dir, diff) >= 0f)
+        {
+            return false;
+        }
+
+        // 此时运动方向正朝向物体内部。若起点已与 Box 表面发生接触（皮肤重叠），立即触发零距离碰撞
+        if (distSq <= radius * radius)
+        {
+            distance = 0f;
+            normal = MathHelper2D.SafeNormalize(diff);
+            contactPoint = closest;
+            return true;
+        }
+
+        // 2. 射线与 Minkowski 膨胀矩形求交 (标准稳健 Slab 算法)
+        Vector2 expMin = min - new Vector2(radius, radius);
+        Vector2 expMax = max + new Vector2(radius, radius);
+
+        float tminX, tmaxX;
+        if (MathF.Abs(dir.X) > 0.00001f)
+        {
+            float tx1 = (expMin.X - origin.X) / dir.X;
+            float tx2 = (expMax.X - origin.X) / dir.X;
+            tminX = MathF.Min(tx1, tx2);
+            tmaxX = MathF.Max(tx1, tx2);
+        }
+        else
+        {
+            if (origin.X < expMin.X || origin.X > expMax.X) return false;
+            tminX = float.MinValue;
+            tmaxX = float.MaxValue;
+        }
+
+        float tminY, tmaxY;
+        if (MathF.Abs(dir.Y) > 0.00001f)
+        {
+            float ty1 = (expMin.Y - origin.Y) / dir.Y;
+            float ty2 = (expMax.Y - origin.Y) / dir.Y;
+            tminY = MathF.Min(ty1, ty2);
+            tmaxY = MathF.Max(ty1, ty2);
+        }
+        else
+        {
+            if (origin.Y < expMin.Y || origin.Y > expMax.Y) return false;
+            tminY = float.MinValue;
+            tmaxY = float.MaxValue;
+        }
+
+        float tEnter = MathF.Max(tminX, tminY);
+        float tExit = MathF.Min(tmaxX, tmaxY);
+
+        if (tEnter > tExit || tExit < 0f || tEnter > maxDistance) return false;
+
+        // 3. 判定撞击表面与外法线
+        distance = MathF.Max(0f, tEnter);
+        if (tminY > tminX)
+        {
+            // 撞击水平表面 (上表面或下表面)
+            if (dir.Y > 0f)
+            {
+                normal = -Vector2.UnitY;
+                contactPoint = new Vector2(MathHelper.Clamp(origin.X + dir.X * tEnter, min.X, max.X), min.Y);
+            }
+            else
+            {
+                normal = Vector2.UnitY;
+                contactPoint = new Vector2(MathHelper.Clamp(origin.X + dir.X * tEnter, min.X, max.X), max.Y);
+            }
+        }
+        else
+        {
+            // 撞击垂直表面 (左表面或右表面)
+            if (dir.X > 0f)
+            {
+                normal = -Vector2.UnitX;
+                contactPoint = new Vector2(min.X, MathHelper.Clamp(origin.Y + dir.Y * tEnter, min.Y, max.Y));
+            }
+            else
+            {
+                normal = Vector2.UnitX;
+                contactPoint = new Vector2(max.X, MathHelper.Clamp(origin.Y + dir.Y * tEnter, min.Y, max.Y));
+            }
+        }
+
         return true;
     }
 }

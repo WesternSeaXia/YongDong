@@ -12,10 +12,12 @@ namespace RoundsClone.Core.Cards;
 /// </summary>
 public class ImplosionNovaCard : ICardPlugin
 {
+    public const float PullRadius = 100f;
+
     public string Id => "card_implosion_nova";
     public string Name => "黑洞引力";
     public string Description => "命中强力黑洞牵引\n弹匣容量 +2\n射击间隔 +25%";
-    public CardTier Tier => CardTier.Epic;
+    public CardTier Tier => CardTier.Legendary;
     public IconType Icon => IconType.Crosshair;
 
     public void OnApply(Actor actor)
@@ -32,9 +34,10 @@ public class ImplosionNovaCard : ICardPlugin
         if (target != null)
         {
             Vector2 pullDir = MathHelper2D.SafeNormalize(hitCenter - target.Body.Position);
-            target.Body.ApplyImpulse(pullDir * 650f);
+            target.Body.ApplyImpulse(pullDir * 750f);
         }
-        particles.EmitExplosion(hitCenter, 130f, ColorPalette.ElectricPurple, 34);
+        // 特效半径为 75px
+        particles.EmitBlackHoleImplosion(hitCenter, 75f, ColorPalette.ElectricPurple);
         shake.AddTrauma(0.42f);
     }
 }

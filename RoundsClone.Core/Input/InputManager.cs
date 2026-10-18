@@ -437,6 +437,11 @@ public class InputManager
     public bool IsLeftClickJustPressed() => (_currMouse.LeftButton == ButtonState.Pressed && _prevMouse.LeftButton != ButtonState.Pressed) || _touchJustPressed;
 
     /// <summary>
+    /// 检查鼠标右键点击是否为本帧刚被触发。
+    /// </summary>
+    public bool IsRightClickJustPressed() => _currMouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton != ButtonState.Pressed;
+
+    /// <summary>
     /// 渲染虚拟触控摇杆与技能按钮（委托给 <see cref="VirtualControlsRenderer"/>）。
     /// </summary>
     public void DrawTouchControls(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font, Actor? player = null)

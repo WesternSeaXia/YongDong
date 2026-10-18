@@ -99,6 +99,12 @@ public class RigidBody2D
     /// </summary>
     public RigidBody2D? WallBody { get; set; }
 
+    /// <summary>
+    /// 是否由外部系统 (如连续碰撞检测 CCD 步进器) 手动控制位移。
+    /// 为 true 时，Integrate 仅解算重力、阻尼与速度上限，不自动累加 Position。
+    /// </summary>
+    public bool ManualPositionIntegration { get; set; } = false;
+
     // 帧合力累加器
     private Vector2 _accumulatedForce = Vector2.Zero;
 
@@ -158,10 +164,13 @@ public class RigidBody2D
             Velocity = Vector2.Normalize(Velocity) * MaxSpeed;
         }
 
-        // 5. 积分计算新位移
-        Position += Velocity * dt;
+        // 5. 积分计算新位移 (若由外部 CCD 手动控制位移，则跳过)
+        if (!ManualPositionIntegration)
+        {
+            Position += Velocity * dt;
+        }
 
-        // 5. 重置合力积蓄
+        // 6. 重置合力积蓄
         _accumulatedForce = Vector2.Zero;
     }
 }

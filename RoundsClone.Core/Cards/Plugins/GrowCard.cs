@@ -11,7 +11,7 @@ public class GrowCard : ICardPlugin
 {
     public string Id => "card_grow";
     public string Name => "飞行增殖";
-    public string Description => "空中飞行体积成长 2.4倍\n飞行伤害增幅 2.5倍\n贴脸初始伤害 -20%";
+    public string Description => "空中每 0.5s 体积 +25%\n空中每 0.5s 伤害 +12.5%";
     public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Bullet;
 
@@ -23,7 +23,7 @@ public class GrowCard : ICardPlugin
     public void OnProjectileSpawn(Actor actor, Projectile projectile)
     {
         projectile.IsGrowBullet = true;
-        projectile.BaseDamage = projectile.Damage * 0.80f;
+        projectile.BaseDamage = projectile.Damage;
         projectile.Damage = projectile.BaseDamage;
     }
 }

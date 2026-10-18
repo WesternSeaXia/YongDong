@@ -15,25 +15,16 @@ public class VampiricLeechCard : ICardPlugin
 {
     public string Id => "card_vampiric_leech";
     public string Name => "生命虹吸";
-    public string Description => "最大生命 +25\n伤害吸血 +30%\n换弹时间 +0.35s";
+    public string Description => "全伤害吸血 +30%\n最大生命 +25\n换弹时间 +0.35s";
     public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Leech;
 
     public void OnApply(Actor actor)
     {
+        actor.HasVampiricLeech = true;
         actor.MaxHealth += 25f;
         actor.CurrentHealth = MathF.Min(actor.CurrentHealth + 25f, actor.MaxHealth);
         actor.ReloadDuration += 0.35f;
         actor.RecalculateHealthScaling();
-    }
-
-    public void OnProjectileHit(Projectile projectile, Actor? target, CollisionManifold manifold, ParticleSystem particles, ScreenShake shake)
-    {
-        if (target != null && projectile.Owner != null && !projectile.Owner.IsDead)
-        {
-            float heal = projectile.Damage * 0.30f;
-            projectile.Owner.CurrentHealth = MathF.Min(projectile.Owner.MaxHealth, projectile.Owner.CurrentHealth + heal);
-            particles.EmitHitSparks(projectile.Owner.Body.Position, -Vector2.UnitY, ColorPalette.PlayerGreen, 8);
-        }
     }
 }

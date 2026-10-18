@@ -11,16 +11,15 @@ public class TitanArmorCard : ICardPlugin
 {
     public string Id => "card_titan_armor";
     public string Name => "泰坦装甲";
-    public string Description => "最大生命 +80\n移动推力 -15%\n换弹时间 +0.3s";
+    public string Description => "最大生命 +100\n移动推力 -20%";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Heart;
 
     public void OnApply(Actor actor)
     {
-        actor.MaxHealth += 80f;
-        actor.CurrentHealth += 80f;
-        actor.ReloadDuration += 0.30f;
+        actor.MaxHealth += 100f;
+        actor.CurrentHealth += 100f;
         actor.RecalculateHealthScaling();
-        actor.MoveForce *= 0.85f;
+        actor.MoveForce *= 0.80f;
     }
 }

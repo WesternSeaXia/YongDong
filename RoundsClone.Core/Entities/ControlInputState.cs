@@ -32,4 +32,9 @@ public struct ControlInputState
     /// 副武器（格挡/冲刺）指令是否处于按下状态。
     /// </summary>
     public bool IsSecondaryDown;
+
+    /// <summary>
+    /// 默认零输入无操作状态（静止木桩状态）。
+    /// </summary>
+    public static readonly ControlInputState Empty = default;
 }

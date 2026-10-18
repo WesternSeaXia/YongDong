@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RoundsClone.Core.Common;
@@ -18,6 +19,12 @@ public static class ActorRenderer
     public static void Draw(Actor actor, ShapeBatcher batcher, SpriteBatch spriteBatch)
     {
         if (actor.IsDead) return;
+
+        // 换弹日冕 (Radiance)：换弹期间角色身后投射宏伟太阳虚影与 150px 范围光环
+        if (actor.IsReloading && actor.HasRadiance)
+        {
+            DrawRadianceSunPhantom(actor, batcher, spriteBatch);
+        }
 
         var body = actor.Body;
         var anim = actor.LimbAnimator;
@@ -105,6 +112,12 @@ public static class ActorRenderer
             outlineColor,
             2.8f
         );
+
+        // 极寒冰冻 (Frost)：减速期间在身体表面凝结晶莹多棱双锥体蓝色冰晶
+        if (actor.SlowTimer > 0f && actor.FrostCrystals.Count > 0)
+        {
+            DrawFrostIceCrystals(batcher, spriteBatch, bodyPos, visualBodyRadius, actor.FrostCrystals);
+        }
 
         // 4. 委托面部渲染器绘制五官与眼神
         ActorFaceRenderer.DrawEyesAndExpression(actor, batcher, spriteBatch, bodyPos, visualBodyRadius, sizeRatio, renderColor, outlineColor);
@@ -234,5 +247,195 @@ public static class ActorRenderer
             center.X + (localX * cosR - localY * sinR),
             center.Y + (localX * sinR + localY * cosR)
         );
+    }
+
+    /// <summary>
+    /// 绘制换弹日冕 (Radiance) 持续期间的太阳虚影与攻击杀伤范围 (150px 判定范围)。
+    /// 外观：中央圆形主体 + 16 个向外突出的三角形齿芒（经典太阳/日珥徽标形态）。
+    /// 动效：换弹初期 0.35s 由小到大平滑展开至 150px 半径；展开完毕后才开始产生攻击判定；全程无闪烁。
+    /// </summary>
+    private static void DrawRadianceSunPhantom(Actor actor, ShapeBatcher batcher, SpriteBatch spriteBatch)
+    {
+        Vector2 pos = actor.Body.Position;
+        const float attackRadius = 150f;      // 攻击判定最大半径（对应三角形外顶点）
+        const float circleRadius = 118f;      // 中心主圆形半径
+        const float expandDuration = 0.35f;   // 刚开始由小到大展开时长
+
+        // 计算换弹已过去时间与由小到大的展开缩放值（Ease-Out 平滑曲线）
+        float elapsedReload = MathF.Max(0f, actor.ReloadDuration - actor.ReloadTimer);
+        float progress = MathHelper.Clamp(elapsedReload / expandDuration, 0f, 1f);
+        float scale = 1.0f - MathF.Pow(1.0f - progress, 3f);
+
+        if (scale <= 0.001f) return;
+
+        float currentAttackRadius = attackRadius * scale;
+        float currentCircleRadius = circleRadius * scale;
+        float currentCoreRadius = 50f * scale;
+
+        // 平稳匀速慢速旋转，无闪烁
+        float rotAngle = elapsedReload * 0.8f;
+
+        // 纯正高对比度暖金与金黄色彩，无任何周期性闪烁或透明度脉动
+        Color circleFillColor = new Color(255, 185, 45) * 0.22f;
+        Color circleOutlineColor = new Color(255, 215, 65) * 0.85f;
+        Color coreFillColor = new Color(255, 230, 110) * 0.28f;
+        Color coreOutlineColor = new Color(255, 240, 130) * 0.60f;
+        Color triangleFillColor = new Color(255, 195, 45) * 0.38f;
+        Color triangleOutlineColor = new Color(255, 220, 60) * 0.88f;
+
+        // 1. 绘制 16 个向外突出的太阳光芒三角形 (Triangles)
+        const int triangleCount = 16;
+        float step = MathHelper.TwoPi / triangleCount;
+        float halfBaseAngle = step * 0.38f;
+        Span<Vector2> triVerts = stackalloc Vector2[3];
+
+        for (int i = 0; i < triangleCount; i++)
+        {
+            float centerAngle = i * step + rotAngle;
+            float cosC = MathF.Cos(centerAngle);
+            float sinC = MathF.Sin(centerAngle);
+
+            // 外顶点（精确延伸至 150px 判定范围极限）
+            Vector2 tipPos = pos + new Vector2(cosC, sinC) * currentAttackRadius;
+
+            // 内基底两个端点（坐落在中心圆周上）
+            float leftAngle = centerAngle - halfBaseAngle;
+            float rightAngle = centerAngle + halfBaseAngle;
+            Vector2 leftBasePos = pos + new Vector2(MathF.Cos(leftAngle), MathF.Sin(leftAngle)) * currentCircleRadius;
+            Vector2 rightBasePos = pos + new Vector2(MathF.Cos(rightAngle), MathF.Sin(rightAngle)) * currentCircleRadius;
+
+            triVerts[0] = tipPos;
+            triVerts[1] = rightBasePos;
+            triVerts[2] = leftBasePos;
+
+            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, triangleFillColor);
+            batcher.DrawPolygonOutline(spriteBatch, triVerts, triangleOutlineColor, 2.0f);
+        }
+
+        // 2. 绘制中心大圆形主体
+        batcher.DrawFilledCircle(spriteBatch, pos, currentCircleRadius, circleFillColor);
+        batcher.DrawCircleOutline(spriteBatch, pos, currentCircleRadius, circleOutlineColor, 2.5f);
+
+        // 3. 绘制内层高能太阳核心圆
+        batcher.DrawFilledCircle(spriteBatch, pos, currentCoreRadius, coreFillColor);
+        batcher.DrawCircleOutline(spriteBatch, pos, currentCoreRadius, coreOutlineColor, 1.5f);
+
+        // 4. 展开完成后，随脉冲向外辐射的冲击波环圈 (0.28s 周期)
+        if (progress >= 1.0f && actor.RadianceTimer > 0f)
+        {
+            float pulseWave = MathHelper.Clamp(actor.RadianceTimer / 0.28f, 0f, 1f);
+            float waveRadius = currentCircleRadius + (currentAttackRadius - currentCircleRadius) * pulseWave;
+            Color waveColor = new Color(255, 235, 120) * (0.65f * (1f - pulseWave));
+            batcher.DrawCircleOutline(spriteBatch, pos, waveRadius, waveColor, 1.8f);
+        }
+    }
+
+    /// <summary>
+    /// 绘制减速状态下的极寒晶莹蓝色冰晶（三维多棱柱体，顶面与底面均为多棱锥，随机附着在敌人身体上）。
+    /// </summary>
+    private static void DrawFrostIceCrystals(ShapeBatcher batcher, SpriteBatch spriteBatch, Vector2 bodyPos, float bodyRadius, IReadOnlyList<FrostCrystalData> crystals)
+    {
+        if (crystals == null || crystals.Count == 0) return;
+
+        Color leftFacetColor = new Color(40, 130, 225, 240);  // 受光面深邃蔚蓝
+        Color rightFacetColor = new Color(15, 65, 155, 245);  // 背光面冷暗深蓝
+        Color rimOutlineColor = new Color(8, 28, 75, 255);    // 外轮廓深邃午夜蓝晶界线
+        Color ringFacetColor = new Color(75, 155, 245, 210);  // 棱柱顶底截面环线
+        Color crestRidgeColor = new Color(185, 225, 255, 250); // 纵贯中轴折射冰晶浅蓝高光棱脊
+
+        Span<Vector2> triVerts = stackalloc Vector2[3];
+        Span<Vector2> quadVerts = stackalloc Vector2[4];
+        Span<Vector2> contourVerts = stackalloc Vector2[6];
+
+        for (int i = 0; i < crystals.Count; i++)
+        {
+            var crystal = crystals[i];
+            Vector2 c = bodyPos + crystal.RelativeOffset;
+            float cos = MathF.Cos(crystal.Angle);
+            float sin = MathF.Sin(crystal.Angle);
+            Vector2 u = new(cos, sin);     // 棱柱主轴方向
+            Vector2 v = new(-sin, cos);    // 棱柱法向（横向）
+
+            float halfLen = crystal.PrismLength * 0.5f;
+            float halfW = crystal.PrismWidth * 0.5f;
+            float pyrH = crystal.PyramidHeight;
+
+            // 顶面与底面尖顶
+            Vector2 topApex = c + u * (halfLen + pyrH);
+            Vector2 bottomApex = c - u * (halfLen + pyrH);
+
+            // 棱柱体顶面多边形特征点
+            Vector2 topMid = c + u * halfLen;
+            Vector2 topLeft = c + u * (halfLen * 0.88f) - v * halfW;
+            Vector2 topRight = c + u * (halfLen * 0.88f) + v * halfW;
+
+            // 棱柱体底面多边形特征点
+            Vector2 bottomMid = c - u * halfLen;
+            Vector2 bottomLeft = c - u * (halfLen * 0.88f) - v * halfW;
+            Vector2 bottomRight = c - u * (halfLen * 0.88f) + v * halfW;
+
+            // 1. 绘制左侧受光面 (Light Facets)
+            // 顶锥左侧三角形: topApex -> topLeft -> topMid
+            triVerts[0] = topApex;
+            triVerts[1] = topLeft;
+            triVerts[2] = topMid;
+            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, leftFacetColor);
+
+            // 棱柱左侧四边形: topMid -> topLeft -> bottomLeft -> bottomMid
+            quadVerts[0] = topMid;
+            quadVerts[1] = topLeft;
+            quadVerts[2] = bottomLeft;
+            quadVerts[3] = bottomMid;
+            batcher.DrawFilledConvexPolygon(spriteBatch, quadVerts, leftFacetColor);
+
+            // 底锥左侧三角形: bottomApex -> bottomMid -> bottomLeft
+            triVerts[0] = bottomApex;
+            triVerts[1] = bottomMid;
+            triVerts[2] = bottomLeft;
+            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, leftFacetColor);
+
+            // 2. 绘制右侧背光面 (Shadow Facets)
+            // 顶锥右侧三角形: topApex -> topMid -> topRight
+            triVerts[0] = topApex;
+            triVerts[1] = topMid;
+            triVerts[2] = topRight;
+            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, rightFacetColor);
+
+            // 棱柱右侧四边形: topMid -> bottomMid -> bottomRight -> topRight
+            quadVerts[0] = topMid;
+            quadVerts[1] = bottomMid;
+            quadVerts[2] = bottomRight;
+            quadVerts[3] = topRight;
+            batcher.DrawFilledConvexPolygon(spriteBatch, quadVerts, rightFacetColor);
+
+            // 底锥右侧三角形: bottomApex -> bottomRight -> bottomMid
+            triVerts[0] = bottomApex;
+            triVerts[1] = bottomRight;
+            triVerts[2] = bottomMid;
+            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, rightFacetColor);
+
+            // 3. 绘制外轮廓深蓝晶界线
+            contourVerts[0] = topApex;
+            contourVerts[1] = topRight;
+            contourVerts[2] = bottomRight;
+            contourVerts[3] = bottomApex;
+            contourVerts[4] = bottomLeft;
+            contourVerts[5] = topLeft;
+            batcher.DrawPolygonOutline(spriteBatch, contourVerts, rimOutlineColor, 1.8f);
+
+            // 4. 绘制棱柱体与顶底双锥的截面交界线
+            batcher.DrawLine(spriteBatch, topLeft, topMid, ringFacetColor, 1.4f);
+            batcher.DrawLine(spriteBatch, topMid, topRight, ringFacetColor, 1.4f);
+            batcher.DrawLine(spriteBatch, bottomLeft, bottomMid, ringFacetColor, 1.4f);
+            batcher.DrawLine(spriteBatch, bottomMid, bottomRight, ringFacetColor, 1.4f);
+
+            // 5. 绘制贯穿顶底尖端的折射棱脊线 (Crest Ridge)
+            batcher.DrawLine(spriteBatch, topApex, topMid, crestRidgeColor, 1.8f);
+            batcher.DrawLine(spriteBatch, topMid, bottomMid, crestRidgeColor, 1.8f);
+            batcher.DrawLine(spriteBatch, bottomMid, bottomApex, crestRidgeColor, 1.8f);
+        }
+
+        // 身体表面微弱极寒冰霜光晕轮廓
+        batcher.DrawCircleOutline(spriteBatch, bodyPos, bodyRadius + 2.5f, new Color(30, 95, 205) * 0.55f, 2.0f);
     }
 }

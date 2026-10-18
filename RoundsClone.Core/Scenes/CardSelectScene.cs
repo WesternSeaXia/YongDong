@@ -128,14 +128,16 @@ public class CardSelectScene : IScene
                 string line = descLines[li];
                 Color lineColor = ColorPalette.TextWhite;
 
-                // 增益判定（绿字）
-                if (line.Contains('+') || line.Contains("成长") || line.Contains("免疫") || line.Contains("折射") || line.Contains("补满") || line.Contains("无敌") || line.Contains("复活") || line.Contains("滑翔") || line.Contains("返还"))
+                // 增益与负面区分：换弹时间减少、冷却减少属于缩短等待时间的正面增益（绿字）
+                bool isWaitTimeReduction = line.Contains("冷却 -") || line.Contains("换弹时间 -") || line.Contains("换弹 -") || line.Contains("前摇 -");
+                bool isPenalty = (line.Contains('-') && !isWaitTimeReduction) || line.Contains("换弹时间 +") || line.Contains("后坐力 +") || line.Contains("散布 +") || line.Contains("间隔 +") || line.Contains("冷却 +");
+                bool isBuff = line.Contains('+') || isWaitTimeReduction || line.Contains("成长") || line.Contains("免疫") || line.Contains("折射") || line.Contains("补满") || line.Contains("无敌") || line.Contains("复活") || line.Contains("滑翔") || line.Contains("返还") || line.Contains("吸血");
+
+                if (isBuff)
                 {
                     lineColor = new Color(130, 255, 150);
                 }
-
-                // 代价/负面判定（红字）
-                if (line.Contains('-') || line.Contains("换弹时间 +") || line.Contains("后坐力 +") || line.Contains("散布 +") || line.Contains("间隔 +") || line.Contains("冷却 +") || line.Contains("伤害 -") || line.Contains("生命 -") || line.Contains("速度 -"))
+                if (isPenalty)
                 {
                     lineColor = new Color(255, 115, 115);
                 }

@@ -64,7 +64,20 @@ public static class CardRegistry
     }
 
     /// <summary>
-    /// 从卡池中抽取指定数量的不重复候选卡牌（用于技能三选一界面）。
+    /// 各稀有度在单卡槽位的基础抽取概率权重 (百分比，总和 100%)。
+    /// 普通 (Common): 55% | 稀有 (Rare): 30% | 史诗 (Epic): 12% | 传说 (Legendary): 3%
+    /// </summary>
+    public static readonly IReadOnlyDictionary<CardTier, int> TierDrawWeights = new Dictionary<CardTier, int>
+    {
+        { CardTier.Common, 55 },
+        { CardTier.Rare, 30 },
+        { CardTier.Epic, 12 },
+        { CardTier.Legendary, 3 }
+    };
+
+    /// <summary>
+    /// 从卡池中按照稀有度概率加权抽取指定数量的不重复候选卡牌（用于技能三选一界面）。
+    /// 单槽位概率：普通 55% / 稀有 30% / 史诗 12% / 传说 3%。
     /// </summary>
     /// <param name="count">抽卡数量（默认 3 张）</param>
     /// <param name="excludeIds">需排除的卡牌 ID 集合</param>
@@ -77,12 +90,54 @@ public static class CardRegistry
             pool = pool.Where(c => !excludeSet.Contains(c.Id)).ToList();
         }
 
-        for (int i = pool.Count - 1; i > 0; i--)
+        List<ICardPlugin> result = new();
+        int targetCount = Math.Min(count, pool.Count);
+
+        while (result.Count < targetCount && pool.Count > 0)
         {
-            int swapIdx = Random.Shared.Next(i + 1);
-            (pool[i], pool[swapIdx]) = (pool[swapIdx], pool[i]);
+            // 依据权重轮盘随机抽取目标稀有度
+            CardTier targetTier = RollRandomTier(pool);
+
+            // 在候选池中选取该稀有度的卡牌
+            var candidateCards = pool.Where(c => c.Tier == targetTier).ToList();
+            if (candidateCards.Count == 0)
+            {
+                // 该稀有度已被抽尽，退化为池中剩余卡牌随机
+                candidateCards = pool;
+            }
+
+            int pickIdx = Random.Shared.Next(candidateCards.Count);
+            var chosen = candidateCards[pickIdx];
+
+            result.Add(chosen);
+            pool.RemoveAll(c => string.Equals(c.Id, chosen.Id, StringComparison.OrdinalIgnoreCase));
         }
 
-        return pool.Take(Math.Min(count, pool.Count)).ToList();
+        return result;
+    }
+
+    private static CardTier RollRandomTier(List<ICardPlugin> currentPool)
+    {
+        var availableTiers = new HashSet<CardTier>(currentPool.Select(c => c.Tier));
+        int totalWeight = 0;
+        foreach (var tier in availableTiers)
+        {
+            if (TierDrawWeights.TryGetValue(tier, out int w)) totalWeight += w;
+        }
+
+        if (totalWeight <= 0) return CardTier.Common;
+
+        int roll = Random.Shared.Next(totalWeight);
+        int accum = 0;
+        foreach (var tier in availableTiers)
+        {
+            if (TierDrawWeights.TryGetValue(tier, out int w))
+            {
+                accum += w;
+                if (roll < accum) return tier;
+            }
+        }
+
+        return availableTiers.First();
     }
 }

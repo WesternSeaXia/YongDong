@@ -11,7 +11,7 @@ public class SneakyCard : ICardPlugin
 {
     public string Id => "card_sneaky";
     public string Name => "贴地滑翔";
-    public string Description => "地表与45度坡气垫滑翔\n垂直90度墙正常撞击\n子弹初速 -20%";
+    public string Description => "弹射次数 +1\n地表气垫规避巡航(掠地不耗反弹)\n换弹时间 +0.3s";
     public CardTier Tier => CardTier.Common;
     public IconType Icon => IconType.Crosshair;
 
@@ -19,7 +19,7 @@ public class SneakyCard : ICardPlugin
     {
         actor.HasSneakyBullet = true;
         actor.BulletBounces += 1;
-        actor.BulletSpeed *= 0.80f;
+        actor.ReloadDuration += 0.30f;
     }
 
     public void OnProjectileSpawn(Actor actor, Projectile projectile)

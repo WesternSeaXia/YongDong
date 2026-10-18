@@ -38,12 +38,42 @@ public class Particle
     public float MaxLifetime;
     public ParticleShape Shape;
 
+    public float AlphaPower = 2f;
+    public Vector2? AttractorPosition;
+    public float AttractorStrength;
+
     public bool IsAlive => Lifetime < MaxLifetime;
 
     public void Update(float dt)
     {
+        if (Lifetime < 0f)
+        {
+            Lifetime += dt;
+            if (Lifetime < 0f) return;
+            dt = Lifetime;
+        }
+
         Lifetime += dt;
-        Velocity.Y += Gravity * dt;
+
+        if (AttractorPosition.HasValue)
+        {
+            Vector2 toCenter = AttractorPosition.Value - Position;
+            float dist = toCenter.Length();
+            if (dist < 12f)
+            {
+                // 到达引力奇点，直接被黑洞视界吞噬湮灭
+                Lifetime = MaxLifetime;
+                return;
+            }
+            Vector2 dir = toCenter / dist;
+            float pullAccel = AttractorStrength / MathF.Max(dist, 18f);
+            Velocity += dir * (pullAccel * dt);
+        }
+        else
+        {
+            Velocity.Y += Gravity * dt;
+        }
+
         Velocity *= MathF.Pow(Drag, dt * 60f);
         Position += Velocity * dt;
         Rotation += AngularVelocity * dt;
@@ -51,8 +81,15 @@ public class Particle
 
     public void Draw(ShapeBatcher batcher, SpriteBatch spriteBatch)
     {
+        if (Lifetime < 0f) return;
+
         float t = MathHelper.Clamp(Lifetime / MaxLifetime, 0f, 1f);
-        float alpha = (1f - t) * (1f - t);
+        float alpha = AlphaPower switch
+        {
+            1f => 1f - t,
+            0.5f => MathF.Sqrt(MathF.Max(0f, 1f - t)),
+            _ => (1f - t) * (1f - t)
+        };
         Color color = Color.Lerp(StartColor, EndColor, t) * alpha;
         float size = MathHelper.Lerp(StartSize, EndSize, t);
         if (size <= 0.1f) return;
@@ -91,7 +128,7 @@ public class Particle
 /// </summary>
 public class ParticleSystem
 {
-    private const int MaxParticles = 550;
+    private const int MaxParticles = 800;
     private readonly List<Particle> _particles = new(512);
     private readonly Random _rand = new();
 
@@ -376,6 +413,262 @@ public class ParticleSystem
             MaxLifetime = 0.22f,
             Shape = ParticleShape.Circle
         });
+    }
+
+    /// <summary>
+    /// 在毒云弥漫范围内随机位置生成向上缓漂且随生命周期逐渐缩小的毒素气泡、微环与腐蚀孢子微粒。
+    /// </summary>
+    public void EmitToxicCloudSpore(Vector2 center, float radius)
+    {
+        float angle = (float)(_rand.NextDouble() * MathHelper.TwoPi);
+        float dist = radius * MathF.Sqrt((float)_rand.NextDouble()) * 0.94f;
+        Vector2 spawnPos = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * dist;
+
+        double roll = _rand.NextDouble();
+        if (roll < 0.35)
+        {
+            // 1. 毒素气泡/孢子：在毒云范围内随机浮现，尺寸随时间逐渐减小至 0
+            float startSize = (float)(_rand.NextDouble() * 9 + 8); // 8px ~ 17px
+            AddParticle(new Particle
+            {
+                Position = spawnPos,
+                Velocity = new Vector2((float)(_rand.NextDouble() - 0.5) * 20f, -(float)(_rand.NextDouble() * 32f + 10f)),
+                Drag = 0.94f,
+                Gravity = -15f,
+                StartColor = Color.Lerp(ColorPalette.PoisonGreen, new Color(140, 255, 60), (float)_rand.NextDouble()) * 0.85f,
+                EndColor = ColorPalette.PoisonGreen * 0f,
+                StartSize = startSize,
+                EndSize = 0f, // 慢慢变小直至消失
+                Lifetime = 0f,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.38 + 0.32),
+                AlphaPower = 1f,
+                Shape = ParticleShape.Circle
+            });
+        }
+        else if (roll < 0.65)
+        {
+            // 2. 烟雾弹翻滚烟团微粒：轻柔半透明的大号游离烟团，低不透明度，绝不遮蔽前景
+            float startSize = (float)(_rand.NextDouble() * 12 + 16); // 16px ~ 28px
+            AddParticle(new Particle
+            {
+                Position = spawnPos,
+                Velocity = new Vector2((float)(_rand.NextDouble() - 0.5) * 24f, -(float)(_rand.NextDouble() * 18f + 6f)),
+                Drag = 0.95f,
+                Gravity = -8f,
+                StartColor = Color.Lerp(ColorPalette.PoisonGreen, new Color(50, 180, 80), 0.35f) * 0.28f,
+                EndColor = ColorPalette.PoisonGreen * 0f,
+                StartSize = startSize,
+                EndSize = 4f, // 翻滚漂移中慢慢收缩消散
+                Lifetime = 0f,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.40 + 0.45),
+                AlphaPower = 1f,
+                Shape = ParticleShape.Circle
+            });
+        }
+        else if (roll < 0.85)
+        {
+            // 3. 毒素轻泡微环：向内收缩微环
+            float startSize = (float)(_rand.NextDouble() * 10 + 10); // 10px ~ 20px
+            AddParticle(new Particle
+            {
+                Position = spawnPos,
+                Velocity = new Vector2((float)(_rand.NextDouble() - 0.5) * 14f, -(float)(_rand.NextDouble() * 22f + 6f)),
+                Drag = 0.93f,
+                Gravity = -10f,
+                StartColor = Color.Lerp(ColorPalette.PoisonGreen, Color.White, 0.25f) * 0.70f,
+                EndColor = ColorPalette.PoisonGreen * 0f,
+                StartSize = startSize,
+                EndSize = 1.0f, // 慢慢变小
+                Lifetime = 0f,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.32 + 0.28),
+                AlphaPower = 1f,
+                Shape = ParticleShape.Ring
+            });
+        }
+        else
+        {
+            // 4. 腐蚀微闪微粒：细小火星快速收缩
+            AddParticle(new Particle
+            {
+                Position = spawnPos,
+                Velocity = new Vector2((float)(_rand.NextDouble() - 0.5) * 45f, (float)(_rand.NextDouble() - 0.5) * 45f - 12f),
+                Drag = 0.90f,
+                Gravity = 30f,
+                StartColor = new Color(170, 255, 90),
+                EndColor = ColorPalette.PoisonGreen * 0f,
+                StartSize = (float)(_rand.NextDouble() * 4 + 3),
+                EndSize = 0f, // 慢慢变小
+                Lifetime = 0f,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.24 + 0.16),
+                AlphaPower = 1f,
+                Shape = ParticleShape.LineSpark
+            });
+        }
+    }
+
+    /// <summary>
+    /// 触发黑洞引力坍缩专属特效：自外围向中心剧烈收缩的多重坍缩环、向引力奇点加速吸入的螺旋光线与暗影核心。
+    /// 视觉参数设定为 75px (直径 150px)。
+    /// </summary>
+    public void EmitBlackHoleImplosion(Vector2 center, float radius = 75f, Color? customColor = null)
+    {
+        Color themeColor = customColor ?? ColorPalette.ElectricPurple;
+        Color coreColor = Color.Lerp(themeColor, Color.White, 0.45f);
+        Color darkSingularity = new(18, 6, 32);
+
+        // 0. 引力生效边界标记光环（精准标记 radius = 75px 物理有效范围，直径 = radius * 2.0 = 150px）
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = Color.Lerp(themeColor, Color.White, 0.35f) * 0.90f,
+            EndColor = themeColor * 0f,
+            StartSize = radius * 2.0f, // 精确对应 radius = 75px (150px 直径)
+            EndSize = radius * 2.0f,
+            Lifetime = 0f,
+            MaxLifetime = 0.25f,
+            AlphaPower = 1f,
+            Shape = ParticleShape.Ring
+        });
+
+        // 1. 三重向心收缩视界环（从 75px 边界以极高向心速度聚缩至中心奇点）
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = themeColor * 0.95f,
+            EndColor = Color.White,
+            StartSize = radius * 2.0f, // 从 75px 边界开始收缩
+            EndSize = 2f,              // 坍缩至奇点
+            Lifetime = 0f,
+            MaxLifetime = 0.25f,
+            AlphaPower = 0.5f,
+            Shape = ParticleShape.Ring
+        });
+
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = coreColor * 0.90f,
+            EndColor = themeColor * 0.2f,
+            StartSize = radius * 1.45f, // 145px 相对半径中间波
+            EndSize = 2f,
+            Lifetime = -0.06f,
+            MaxLifetime = 0.22f,
+            AlphaPower = 0.5f,
+            Shape = ParticleShape.Ring
+        });
+
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = Color.White * 0.95f,
+            EndColor = themeColor * 0f,
+            StartSize = radius * 0.95f, // 95px 核心收束波
+            EndSize = 1f,
+            Lifetime = -0.12f,
+            MaxLifetime = 0.20f,
+            AlphaPower = 0.5f,
+            Shape = ParticleShape.Ring
+        });
+
+        // 2. 奇点暗核与光子层（黑洞中心吞噬光线的核心视界）
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = darkSingularity * 0.98f,
+            EndColor = Color.Transparent,
+            StartSize = 16f,
+            EndSize = 2f,
+            Lifetime = 0f,
+            MaxLifetime = 0.32f,
+            Shape = ParticleShape.Circle
+        });
+
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = coreColor * 0.85f,
+            EndColor = Color.Transparent,
+            StartSize = 22f,
+            EndSize = 4f,
+            Lifetime = -0.04f,
+            MaxLifetime = 0.28f,
+            Shape = ParticleShape.Circle
+        });
+
+        // 终结微光闪烁（奇点彻底坍缩消散）
+        AddParticle(new Particle
+        {
+            Position = center,
+            Velocity = Vector2.Zero,
+            Drag = 1f,
+            Gravity = 0f,
+            StartColor = Color.White * 0.95f,
+            EndColor = Color.Transparent,
+            StartSize = 7f,
+            EndSize = 0.5f,
+            Lifetime = -0.22f,
+            MaxLifetime = 0.12f,
+            Shape = ParticleShape.Circle
+        });
+
+        // 3. 向心吸附螺旋光线与星屑（42 条光斑/光线受向心引力场拉扯高速奔向奇点）
+        // 粒子的生成范围精确限制在引力场内部 (0.35R ~ 1.0R，即 26px ~ 75px)
+        const int streamCount = 42;
+        for (int i = 0; i < streamCount; i++)
+        {
+            int wave = i % 3;
+            float delay = wave * 0.055f;
+            float baseAngle = (i / (float)streamCount) * MathHelper.TwoPi + (float)(_rand.NextDouble() - 0.5) * 0.35f;
+            float spawnDist = radius * (float)(_rand.NextDouble() * 0.65 + 0.35); // 0.35R ~ 1.0R (严格位于 75px 边界内)
+
+            Vector2 spawnPos = center + new Vector2(MathF.Cos(baseAngle), MathF.Sin(baseAngle)) * spawnDist;
+            Vector2 toCenter = center - spawnPos;
+            float toCenterDist = toCenter.Length();
+            Vector2 inwardDir = toCenterDist > 0.001f ? toCenter / toCenterDist : -Vector2.UnitY;
+            Vector2 tangentDir = new Vector2(-inwardDir.Y, inwardDir.X); // 吸积盘自转方向
+
+            float inwardSpeed = (float)(_rand.NextDouble() * 110 + 70);
+            float swirlSpeed = (float)(_rand.NextDouble() * 150 + 90);
+            Vector2 vel = inwardDir * inwardSpeed + tangentDir * swirlSpeed;
+
+            Color pColor = (i % 3 == 0) ? Color.White : (i % 2 == 0 ? themeColor : coreColor);
+
+            AddParticle(new Particle
+            {
+                Position = spawnPos,
+                Velocity = vel,
+                Drag = 0.94f,
+                Gravity = 0f,
+                StartColor = pColor,
+                EndColor = themeColor * 0.15f,
+                StartSize = (float)(_rand.NextDouble() * 4.5 + 3.5),
+                EndSize = 0.5f,
+                Lifetime = -delay,
+                MaxLifetime = (float)(_rand.NextDouble() * 0.18 + 0.32),
+                AlphaPower = 1f,
+                Shape = (i % 5 == 0) ? ParticleShape.Circle : ParticleShape.LineSpark,
+                AttractorPosition = center,
+                AttractorStrength = 240000f
+            });
+        }
     }
 
     /// <summary>

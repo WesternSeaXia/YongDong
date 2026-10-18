@@ -95,6 +95,7 @@ public class Projectile
     public bool HasTargetBounce { get; set; } = false;
     public bool HasTargetBounced { get; set; } = false;
     public bool SpawnsToxicCloud { get; set; } = false;
+    public bool CanScavengeAmmo { get; set; } = true;
 
     /// <summary>
     /// 弹头基准色彩（跟随发射者主题色）。
@@ -123,7 +124,8 @@ public class Projectile
             Drag = 0.005f,
             GravityScale = 0.54f,
             FallGravityMultiplier = 1.15f,
-            Restitution = 0.95f
+            Restitution = 0.95f,
+            ManualPositionIntegration = true
         };
 
         Collider = new CircleCollider(Body, Radius)
@@ -149,31 +151,47 @@ public class Projectile
             return;
         }
 
-        // 1. 飞行增殖机制 (Grow)：随着空中飞行时间越长，弹头体积与伤害递增（最长成长 3 秒，最高 2.4 倍体型，2.5 倍伤害）
-        if (IsGrowBullet && Lifetime <= 3.0f)
+        // 1. 飞行增殖机制 (Grow)：在空中每 0.5 秒增加 25% 体积，每 0.5 秒增加 12.5% 伤害
+        if (IsGrowBullet)
         {
-            float scale = MathHelper.Clamp(1.0f + Lifetime * 0.45f, 1.0f, 2.4f);
+            float scale = 1.0f + (Lifetime / 0.5f) * 0.25f;
             Radius = BaseRadius * scale;
             Collider.Radius = Radius;
-            Damage = BaseDamage * MathHelper.Clamp(1.0f + Lifetime * 0.50f, 1.0f, 2.5f);
+            Damage = BaseDamage * (1.0f + (Lifetime / 0.5f) * 0.125f);
         }
 
-        // 2. 贴地飞行机制 (Sneaky)：地面与 45° 斜坡气垫排斥滑翔，垂直 90° 墙面失去效果
+        // 2. 贴地飞行机制 (Sneaky)：外层气垫排斥力场（探测地表并产生向外规避推力，让子弹在触地前优雅弧线扬起并沿地形滑翔）
         if (IsSneakyBullet && world != null && !IsDestroyed)
         {
-            var hit = world.Raycast(Body.Position, Vector2.UnitY, 28f, Collider);
-            if (hit.HasHit && hit.Normal.Y <= -0.707f) // 法线与向上夹角 <= 45° (平地或45度坡)
+            const float FieldRadius = 38f;
+            if (world.QueryClosestSurface(Body.Position, FieldRadius, out float dist, out Vector2 surfNorm, out Vector2 surfPt, Collider))
             {
-                float desiredY = hit.Point.Y - 14f;
-                if (Body.Position.Y > desiredY - 6f)
+                // 仅对具有向上支撑分量的地表/斜坡产生地面规避推力 (坡度 < 90°，即 surfNorm.Y <= -0.05f)
+                // 垂直立墙由物理碰撞 CCD 负责触发反弹
+                if (surfNorm.Y <= -0.05f && dist > Radius)
                 {
-                    // 顺沿地面切线偏转速度
-                    Vector2 tangent = new(-hit.Normal.Y, hit.Normal.X);
-                    if (Vector2.Dot(Body.Velocity, tangent) < 0f) tangent = -tangent;
+                    float t = 1.0f - (dist - Radius) / (FieldRadius - Radius);
+                    t = MathHelper.Clamp(t, 0f, 1f);
 
-                    float speed = Body.Velocity.Length();
-                    Body.Velocity = tangent * speed;
-                    Body.Position = new Vector2(Body.Position.X, MathHelper.Lerp(Body.Position.Y, desiredY, dt * 20f));
+                    // 距离地表越近，向外的推力越强 (二次方递增，产生“想要逃离地面”的强烈气垫感)
+                    float repelAccel = 11000f * (t * t);
+                    Vector2 repelForce = surfNorm * repelAccel;
+
+                    Vector2 currentVel = Body.Velocity;
+                    float currentSpeed = currentVel.Length();
+
+                    // 施加排斥推力并保持总速率恒定 (纯方向平滑偏转，不损耗动能)
+                    Vector2 newVel = currentVel + repelForce * dt;
+                    if (currentSpeed > 10f)
+                    {
+                        Body.Velocity = MathHelper2D.SafeNormalize(newVel) * currentSpeed;
+                    }
+
+                    // 靠近地表时喷射轻柔的气垫微光粒子
+                    if (t > 0.4f && Random.Shared.NextDouble() < 0.25)
+                    {
+                        particles.EmitHitSparks(surfPt, surfNorm, BulletColor * 0.45f, 1);
+                    }
                 }
             }
         }

@@ -13,7 +13,7 @@ public class TargetBounceCard : ICardPlugin
     public string Id => "card_target_bounce";
     public string Name => "目标折射";
     public string Description => "撞墙精准追踪折射 1次\n反弹次数 +1\n最大弹匣 -1";
-    public CardTier Tier => CardTier.Rare;
+    public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Bounce;
 
     public void OnApply(Actor actor)

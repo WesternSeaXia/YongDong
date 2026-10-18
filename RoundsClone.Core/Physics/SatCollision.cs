@@ -319,9 +319,9 @@ public static class SatCollision
     }
 
     /// <summary>
-    /// 射线与凸多边形相交检测。
+    /// 射线与凸多边形相交检测（支持可选的圆形膨胀半径，用于扫掠 CCD）。
     /// </summary>
-    public static bool RayIntersectPolygon(Vector2 origin, Vector2 dir, PolygonCollider poly, out float distance, out Vector2 normal)
+    public static bool RayIntersectPolygon(Vector2 origin, Vector2 dir, PolygonCollider poly, out float distance, out Vector2 normal, float radius = 0f)
     {
         distance = -1f;
         normal = Vector2.Zero;
@@ -337,12 +337,11 @@ public static class SatCollision
         for (int i = 0; i < n; i++)
         {
             Vector2 p1 = verts[i];
-            Vector2 p2 = verts[(i + 1) % n];
-            Vector2 edge = p2 - p1;
-            Vector2 edgeNorm = MathHelper2D.SafeNormalize(new Vector2(-edge.Y, edge.X));
+            Vector2 edgeNorm = poly.EdgeNormals[i];
+            Vector2 planePoint = radius > 0f ? p1 + edgeNorm * radius : p1;
 
             float denominator = Vector2.Dot(edgeNorm, dir);
-            float numerator = Vector2.Dot(edgeNorm, p1 - origin);
+            float numerator = Vector2.Dot(edgeNorm, planePoint - origin);
 
             if (MathF.Abs(denominator) < 0.00001f)
             {
@@ -376,24 +375,83 @@ public static class SatCollision
 
         if (tFar < 0f) return false;
 
+        // 如果起点已经在膨胀多边形内部 (tNear <= 0 且 tFar > 0)
+        if (tNear <= 0.0001f && tFar > 0f)
+        {
+            // 寻找距离最近的边表面法线
+            float minEdgeDist = float.MaxValue;
+            Vector2 bestNorm = poly.EdgeNormals[0];
+
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 p1 = verts[i];
+                Vector2 edgeNorm = poly.EdgeNormals[i];
+                Vector2 planePoint = radius > 0f ? p1 + edgeNorm * radius : p1;
+                float d = Vector2.Dot(edgeNorm, planePoint - origin);
+                if (d < minEdgeDist)
+                {
+                    minEdgeDist = d;
+                    bestNorm = edgeNorm;
+                }
+            }
+
+            // 若速度方向正背离该表面朝外脱离，坚决放行脱离，杜绝吸附反弹
+            if (Vector2.Dot(dir, bestNorm) >= 0f)
+            {
+                return false;
+            }
+
+            // 朝内部运动：立即零距离阻断并赋予真实外向法线
+            distance = 0f;
+            normal = bestNorm;
+            return true;
+        }
+
         distance = tNear > 0f ? tNear : tFar;
         normal = nearNormal;
         return true;
     }
 
     /// <summary>
-    /// 射线与圆形相交检测。
+    /// 射线与圆形碰撞体相交检测。
     /// </summary>
     public static bool RayIntersectCircle(Vector2 origin, Vector2 dir, CircleCollider circle, out float distance, out Vector2 normal)
+    {
+        return RayIntersectCircle(origin, dir, circle.Body.Position, circle.Radius, out distance, out normal);
+    }
+
+    /// <summary>
+    /// 射线与任意指定圆心和半径相交检测（支持扫掠 CCD 与 Minkowski 膨胀圆角）。
+    /// </summary>
+    public static bool RayIntersectCircle(Vector2 origin, Vector2 dir, Vector2 center, float radius, out float distance, out Vector2 normal)
     {
         distance = -1f;
         normal = Vector2.Zero;
 
-        Vector2 m = origin - circle.Body.Position;
-        float radiusSq = circle.Radius * circle.Radius;
+        Vector2 m = origin - center;
+        float radiusSq = radius * radius;
 
-        // 如果起点在圆内部（如角色自身中心发射探测射线），忽略自身相交
-        if (m.LengthSquared() <= radiusSq) return false;
+        // 如果起点在圆内部或边缘
+        if (m.LengthSquared() <= radiusSq)
+        {
+            float mLenSq = m.LengthSquared();
+            if (mLenSq <= 0.0001f)
+            {
+                // 圆心严格深陷圆内部：直接零距离阻断碰撞
+                distance = 0f;
+                normal = -dir;
+                return true;
+            }
+
+            Vector2 norm = MathHelper2D.SafeNormalize(m);
+            if (Vector2.Dot(dir, norm) < 0f)
+            {
+                distance = 0f;
+                normal = norm;
+                return true;
+            }
+            return false;
+        }
 
         float b = Vector2.Dot(m, dir);
         if (b > 0f) return false; // 圆在射线相反方向
@@ -407,7 +465,7 @@ public static class SatCollision
 
         distance = t;
         Vector2 hitPoint = origin + dir * t;
-        normal = MathHelper2D.SafeNormalize(hitPoint - circle.Body.Position);
+        normal = MathHelper2D.SafeNormalize(hitPoint - center);
         return true;
     }
 

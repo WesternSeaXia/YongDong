@@ -12,7 +12,7 @@ public class RadianceCard : ICardPlugin
     public string Id => "card_radiance";
     public string Name => "换弹日冕";
     public string Description => "换弹释放太阳脉冲光波\n近身震退并烧伤敌人\n换弹时间 +0.5s";
-    public CardTier Tier => CardTier.Epic;
+    public CardTier Tier => CardTier.Rare;
     public IconType Icon => IconType.Star;
 
     public void OnApply(Actor actor)

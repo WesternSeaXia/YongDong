@@ -12,7 +12,7 @@ public class ScavengerCard : ICardPlugin
 {
     public string Id => "card_scavenger";
     public string Name => "以战养战";
-    public string Description => "子弹命中即刻返还 1发\n最大弹匣 -1\n换弹时间 +0.5s";
+    public string Description => "非末发命中返还 1发\n末发打出正常换弹\n最大弹匣 -1\n换弹时间 +0.3s";
     public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Bullet;
 
@@ -21,6 +21,6 @@ public class ScavengerCard : ICardPlugin
         actor.HasScavenger = true;
         actor.MaxAmmo = Math.Max(1, actor.MaxAmmo - 1);
         actor.CurrentAmmo = Math.Min(actor.CurrentAmmo, actor.MaxAmmo);
-        actor.ReloadDuration += 0.50f;
+        actor.ReloadDuration += 0.30f;
     }
 }
