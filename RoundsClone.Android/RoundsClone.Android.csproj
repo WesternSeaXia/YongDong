@@ -3,7 +3,8 @@
     <TargetFramework>net10.0-android</TargetFramework>
     <SupportedOSPlatformVersion>21</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
-    <ApplicationId>com.companyname.RoundsClone.Android</ApplicationId>
+    <ApplicationId>com.yongdong.chaosgunner</ApplicationId>
+    <ApplicationTitle>混乱枪豆人 (Chaos Gunner)</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('C:\Users\Summer\AppData\Local\Android\Sdk')">C:\Users\Summer\AppData\Local\Android\Sdk</AndroidSdkDirectory>

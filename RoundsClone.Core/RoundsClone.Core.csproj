@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Title>混乱枪豆人核心库 (Chaos Gunner Core)</Title>
+    <Product>混乱枪豆人 (Chaos Gunner)</Product>
+    <Description>混乱枪豆人核心物理与战斗引擎 (Chaos Gunner Core Engine)</Description>
   </PropertyGroup>
 
   <ItemGroup>

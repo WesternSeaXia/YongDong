@@ -79,16 +79,29 @@ public class GameSettings
 
     /// <summary>
     /// 获取平台兼容的本地设置存储文件路径。
+    /// 采用全英文字符目录名 ChaosGunner，防止跨平台/跨语言系统编码错误，并自动兼容迁移历史旧目录。
     /// </summary>
     private static string GetConfigFilePath()
     {
         string baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string appDir = Path.Combine(baseDir, "混乱枪豆人");
+        string appDir = Path.Combine(baseDir, "ChaosGunner");
+        string chineseDir = Path.Combine(baseDir, "混乱枪豆人");
         string legacyDir = Path.Combine(baseDir, "RoundsClone");
 
         if (!Directory.Exists(appDir))
         {
-            if (Directory.Exists(legacyDir))
+            if (Directory.Exists(chineseDir))
+            {
+                try
+                {
+                    Directory.Move(chineseDir, appDir);
+                }
+                catch
+                {
+                    // 若重命名失败则保留原样
+                }
+            }
+            else if (Directory.Exists(legacyDir))
             {
                 try
                 {
@@ -96,7 +109,7 @@ public class GameSettings
                 }
                 catch
                 {
-                    // 若重命名失败则直接创建新目录
+                    // 若重命名失败则保留原样
                 }
             }
 

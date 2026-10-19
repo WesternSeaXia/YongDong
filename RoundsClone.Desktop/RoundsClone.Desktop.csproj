@@ -6,9 +6,10 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>false</TieredCompilation>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Title>混乱枪豆人</Title>
-    <Product>混乱枪豆人</Product>
-    <Description>混乱枪豆人 (Chaos Gunner)</Description>
+    <Title>混乱枪豆人 (Chaos Gunner)</Title>
+    <Product>混乱枪豆人 (Chaos Gunner)</Product>
+    <Description>混乱枪豆人 (Chaos Gunner) - 2D Physics Arena Shooter</Description>
+    <AssemblyName>ChaosGunner</AssemblyName>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>

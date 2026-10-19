@@ -49,7 +49,7 @@ public class RoundsGame : Game
             _graphics.PreferredBackBufferWidth = 1280;
             _graphics.PreferredBackBufferHeight = 720;
             Window.AllowUserResizing = true;
-            Window.Title = "混乱枪豆人";
+            Window.Title = "混乱枪豆人 (Chaos Gunner)";
             IsMouseVisible = true;
         }
         else
@@ -63,7 +63,7 @@ public class RoundsGame : Game
 
     protected override void Initialize()
     {
-        Console.WriteLine("[RoundsGame] Initialize started");
+        Console.WriteLine("[ChaosGunner] Initialize started");
         GameSettings.Load();
         _viewport = new VirtualViewport();
         _input = new InputManager
@@ -75,12 +75,12 @@ public class RoundsGame : Game
         };
 
         base.Initialize();
-        Console.WriteLine("[RoundsGame] Initialize completed successfully");
+        Console.WriteLine("[ChaosGunner] Initialize completed successfully");
     }
 
     protected override void LoadContent()
     {
-        Console.WriteLine("[RoundsGame] LoadContent started: generating procedural textures and font atlas");
+        Console.WriteLine("[ChaosGunner] LoadContent started: generating procedural textures and font atlas");
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         _shapeBatcher = new ShapeBatcher(GraphicsDevice);
         _font = new ProceduralFont(GraphicsDevice, 28f);
@@ -91,7 +91,7 @@ public class RoundsGame : Game
 
         // 默认进入主菜单
         _sceneManager.ChangeScene(new MainMenuScene(_sceneManager, Exit));
-        Console.WriteLine("[RoundsGame] LoadContent completed: MainMenuScene ready");
+        Console.WriteLine("[ChaosGunner] LoadContent completed: MainMenuScene ready");
     }
 
     protected override void Update(GameTime gameTime)
@@ -196,7 +196,7 @@ public class RoundsGame : Game
             if (_drawCount < 3)
             {
                 _drawCount++;
-                Console.WriteLine($"[RoundsGame] Successfully rendered frame {_drawCount}!");
+                Console.WriteLine($"[ChaosGunner] Successfully rendered frame {_drawCount}!");
             }
         }
 

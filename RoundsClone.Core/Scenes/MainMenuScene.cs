@@ -210,8 +210,9 @@ public class MainMenuScene : IScene
 
         _manager.Particles.Draw(batcher, spriteBatch);
 
-        // 2. 简洁主标题
-        font.DrawText(spriteBatch, "混乱枪豆人", centerRing, Color.White, VirtualViewport.IsMobile ? 2.6f : 2.2f, new Vector2(0.5f, 0.5f));
+        // 2. 简洁主标题与英文副标题
+        font.DrawText(spriteBatch, "混乱枪豆人", centerRing - new Vector2(0, VirtualViewport.IsMobile ? 16f : 14f), Color.White, VirtualViewport.IsMobile ? 2.6f : 2.2f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "CHAOS GUNNER", centerRing + new Vector2(0, VirtualViewport.IsMobile ? 42f : 36f), ColorPalette.TextGray * 0.85f, VirtualViewport.IsMobile ? 0.85f : 0.70f, new Vector2(0.5f, 0.5f));
 
         // 3. 按钮列表
         DrawButton(batcher, spriteBatch, font, _btnStart, "开始游戏", mousePos, ColorPalette.PlayerBlue);
