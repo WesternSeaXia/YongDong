@@ -53,8 +53,10 @@ public class CharacterSelectScene : IScene
     private float _previewTimer = 0f;
 
     // UI 按钮区域
+    private Rectangle _btnAiDifficulty;
     private Rectangle _btnConfirm;
     private Rectangle _btnBack;
+    private int _lastHoveredItem = -1;
 
     public CharacterSelectScene(SceneManager manager, Action exitAction)
     {
@@ -71,12 +73,14 @@ public class CharacterSelectScene : IScene
         int cx = VirtualViewport.VirtualWidth / 2;
         if (VirtualViewport.IsMobile)
         {
-            _btnConfirm = new Rectangle(cx - 290, 900, 580, 108);
+            _btnAiDifficulty = new Rectangle(cx - 290, 825, 580, 62);
+            _btnConfirm = new Rectangle(cx - 290, 905, 580, 96);
             _btnBack = new Rectangle(50, 38, 220, 78);
         }
         else
         {
-            _btnConfirm = new Rectangle(cx - 200, 930, 400, 70);
+            _btnAiDifficulty = new Rectangle(cx - 220, 852, 440, 52);
+            _btnConfirm = new Rectangle(cx - 200, 926, 400, 68);
             _btnBack = new Rectangle(80, 60, 160, 50);
         }
     }
@@ -112,18 +116,6 @@ public class CharacterSelectScene : IScene
         int colorY = mobile ? 430 : 500;
         float colorStartX = VirtualViewport.VirtualWidth * 0.5f - ((_colorOptions.Length - 1) * colorStep + colorW) * 0.5f;
 
-        for (int i = 0; i < _colorOptions.Length; i++)
-        {
-            Rectangle colorRect = new((int)(colorStartX + i * colorStep), colorY, colorW, colorH);
-            if (colorRect.Contains(mousePos) && click)
-            {
-                _selectedColorIndex = i;
-                _previewActor.ThemeColor = _colorOptions[i].Color;
-                _previewActor.Squash.ApplySquash(Vector2.UnitY, 0.22f);
-            }
-        }
-
-        // 2. 眼神配置点击切换
         int eyeBtnW = mobile ? 245 : 136;
         int eyeBtnH = mobile ? 84 : 54;
         int eyeGap = mobile ? 22 : 18;
@@ -131,18 +123,6 @@ public class CharacterSelectScene : IScene
         int totalEyeW = _eyeOptions.Length * eyeBtnW + (_eyeOptions.Length - 1) * eyeGap;
         int eyeStartX = (VirtualViewport.VirtualWidth - totalEyeW) / 2;
 
-        for (int i = 0; i < _eyeOptions.Length; i++)
-        {
-            Rectangle eyeRect = new(eyeStartX + i * (eyeBtnW + eyeGap), eyeY, eyeBtnW, eyeBtnH);
-            if (eyeRect.Contains(mousePos) && click)
-            {
-                _selectedEyeIndex = i;
-                _previewActor.EyeStyle = _eyeOptions[i].Style;
-                _previewActor.Squash.ApplyStretch(Vector2.UnitY, 0.25f);
-            }
-        }
-
-        // 3. 副武器点击切换
         int cardW = mobile ? 540 : 340;
         int cardH = mobile ? 175 : 125;
         int gap = mobile ? 60 : 50;
@@ -150,20 +130,93 @@ public class CharacterSelectScene : IScene
         int totalW = cardW * 2 + gap;
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
 
+        // 悬停交互音效探测
+        int hovered = -1;
+        for (int i = 0; i < _colorOptions.Length; i++)
+        {
+            Rectangle colorRect = new((int)(colorStartX + i * colorStep), colorY, colorW, colorH);
+            if (colorRect.Contains(mousePos)) { hovered = 10 + i; break; }
+        }
+        if (hovered == -1)
+        {
+            for (int i = 0; i < _eyeOptions.Length; i++)
+            {
+                Rectangle eyeRect = new(eyeStartX + i * (eyeBtnW + eyeGap), eyeY, eyeBtnW, eyeBtnH);
+                if (eyeRect.Contains(mousePos)) { hovered = 20 + i; break; }
+            }
+        }
+        if (hovered == -1)
+        {
+            for (int i = 0; i < _subWeaponOptions.Length; i++)
+            {
+                Rectangle weaponCard = new(startX + i * (cardW + gap), cardY, cardW, cardH);
+                if (weaponCard.Contains(mousePos)) { hovered = 30 + i; break; }
+            }
+        }
+        if (hovered == -1)
+        {
+            if (_btnAiDifficulty.Contains(mousePos)) hovered = 39;
+            else if (_btnConfirm.Contains(mousePos)) hovered = 40;
+            else if (_btnBack.Contains(mousePos)) hovered = 41;
+        }
+
+        if (hovered != -1 && hovered != _lastHoveredItem)
+        {
+            _manager.Audio.PlayUiHover();
+        }
+        _lastHoveredItem = hovered;
+
+        // 1. 色彩点击切换
+        for (int i = 0; i < _colorOptions.Length; i++)
+        {
+            Rectangle colorRect = new((int)(colorStartX + i * colorStep), colorY, colorW, colorH);
+            if (colorRect.Contains(mousePos) && click)
+            {
+                _manager.Audio.PlayUiClick();
+                _selectedColorIndex = i;
+                _previewActor.ThemeColor = _colorOptions[i].Color;
+                _previewActor.Squash.ApplySquash(Vector2.UnitY, 0.22f);
+            }
+        }
+
+        // 2. 眼神配置点击切换
+        for (int i = 0; i < _eyeOptions.Length; i++)
+        {
+            Rectangle eyeRect = new(eyeStartX + i * (eyeBtnW + eyeGap), eyeY, eyeBtnW, eyeBtnH);
+            if (eyeRect.Contains(mousePos) && click)
+            {
+                _manager.Audio.PlayUiClick();
+                _selectedEyeIndex = i;
+                _previewActor.EyeStyle = _eyeOptions[i].Style;
+                _previewActor.Squash.ApplyStretch(Vector2.UnitY, 0.25f);
+            }
+        }
+
+        // 3. 副武器点击切换
         for (int i = 0; i < _subWeaponOptions.Length; i++)
         {
             Rectangle weaponCard = new(startX + i * (cardW + gap), cardY, cardW, cardH);
             if (weaponCard.Contains(mousePos) && click)
             {
+                _manager.Audio.PlayUiClick();
                 _selectedSubWeaponIndex = i;
                 _previewActor.SubWeapon = _subWeaponOptions[i].Factory();
                 _previewActor.Squash.ApplySquash(Vector2.UnitY, 0.20f);
             }
         }
 
-        // 4. 确认配置并进入关卡三选一
+        // 4. AI 难度点击切换
+        if (_btnAiDifficulty.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            GameSettings.Current.AiDifficulty = (GameSettings.Current.AiDifficulty + 1) % 3;
+            GameSettings.Save();
+        }
+
+        // 5. 确认配置并进入关卡三选一
         if (_btnConfirm.Contains(mousePos) && click)
         {
+            _manager.Audio.PlayUiClick();
             _manager.PlayerColor = _colorOptions[_selectedColorIndex].Color;
             _manager.PlayerEyeStyle = _eyeOptions[_selectedEyeIndex].Style;
             _manager.PlayerSubWeaponFactory = _subWeaponOptions[_selectedSubWeaponIndex].Factory;
@@ -177,9 +230,10 @@ public class CharacterSelectScene : IScene
             _manager.ChangeScene(new StageSelectScene(_manager, _exitAction));
         }
 
-        // 5. 返回主菜单
+        // 6. 返回主菜单
         if (_btnBack.Contains(mousePos) && click)
         {
+            _manager.Audio.PlayUiClick();
             _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
         }
     }
@@ -270,7 +324,29 @@ public class CharacterSelectScene : IScene
             font.DrawText(spriteBatch, _subWeaponOptions[i].Name, new Vector2(weaponCard.X + (mobile ? 185 : 135), weaponCard.Center.Y), selected ? Color.White : ColorPalette.TextWhite, mobile ? 1.5f : 1.1f, new Vector2(0f, 0.5f));
         }
 
-        // 4. 底部确认与返回按钮
+        // 4. AI 难度直观切换按钮
+        bool diffHover = _btnAiDifficulty.Contains(mousePos);
+        int currentDiff = GameSettings.Current.AiDifficulty;
+        string diffLabel = currentDiff switch
+        {
+            0 => "AI 难度: 【简单】 (新手练手 / 射击迟疑)  [点此切换]",
+            1 => "AI 难度: 【普通】 (战术特工 / 均衡对抗)  [点此切换]",
+            2 => "AI 难度: 【地狱】 (绝壁弹反 / 极限预判)  [点此切换]",
+            _ => "AI 难度: 【普通】 (战术特工)  [点此切换]"
+        };
+        Color diffAccent = currentDiff switch
+        {
+            0 => ColorPalette.PlayerGreen,
+            1 => ColorPalette.PlayerBlue,
+            _ => ColorPalette.PlayerRed
+        };
+
+        batcher.DrawRoundedRect(spriteBatch, _btnAiDifficulty, mobile ? 10f : 8f, diffHover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard);
+        batcher.DrawRectangleOutline(spriteBatch, _btnAiDifficulty, diffHover ? Color.White : diffAccent, diffHover ? 3.5f : 2.0f);
+        batcher.DrawRectangle(spriteBatch, new Rectangle(_btnAiDifficulty.X, _btnAiDifficulty.Y, 8, _btnAiDifficulty.Height), diffAccent);
+        font.DrawText(spriteBatch, diffLabel, new Vector2(_btnAiDifficulty.Center.X, _btnAiDifficulty.Center.Y), diffHover ? Color.White : diffAccent, mobile ? 1.05f : 0.84f, new Vector2(0.5f, 0.5f));
+
+        // 5. 底部确认与返回按钮
         bool confirmHover = _btnConfirm.Contains(mousePos);
         batcher.DrawRoundedRect(spriteBatch, _btnConfirm, 12f, confirmHover ? ColorPalette.PlayerBlue : ColorPalette.ButtonHover);
         batcher.DrawRectangleOutline(spriteBatch, _btnConfirm, Color.White, confirmHover ? 4f : 2.5f);

@@ -113,10 +113,10 @@ public static class ActorRenderer
             2.8f
         );
 
-        // 极寒冰冻 (Frost)：减速期间在身体表面凝结晶莹多棱双锥体蓝色冰晶
-        if (actor.SlowTimer > 0f && actor.FrostCrystals.Count > 0)
+        // 极寒冰冻 / 通用减速 (Frost & Slow)：身体上有一圈蓝光，且附着细小冰渣
+        if (actor.SlowTimer > 0f)
         {
-            DrawFrostIceCrystals(batcher, spriteBatch, bodyPos, visualBodyRadius, actor.FrostCrystals);
+            DrawFrozenSlowEffect(actor, batcher, spriteBatch, bodyPos, visualBodyRadius);
         }
 
         // 4. 委托面部渲染器绘制五官与眼神
@@ -143,9 +143,13 @@ public static class ActorRenderer
 
         DrawGun(actor, batcher, spriteBatch, handTipPos, currentAim, aimSign, sizeRatio, outlineColor, limbBlack);
 
-        // 6. 绘制头顶弹匣余量与换弹进度条 + 副武器特效
+        // 6. 绘制头顶弹匣余量与换弹进度条 + 副武器与被动力场护盾特效
         DrawAmmoAndReloadIndicator(actor, batcher, spriteBatch, pos, sizeRatio);
         actor.SubWeapon?.Draw(batcher, spriteBatch, actor);
+        if (actor.PassiveShield.IsActive && actor.SubWeapon is not RoundsClone.Core.SubWeapons.BlockSubWeapon)
+        {
+            actor.PassiveShield.Draw(batcher, spriteBatch, actor);
+        }
     }
 
     /// <summary>
@@ -331,111 +335,71 @@ public static class ActorRenderer
     }
 
     /// <summary>
-    /// 绘制减速状态下的极寒晶莹蓝色冰晶（三维多棱柱体，顶面与底面均为多棱锥，随机附着在敌人身体上）。
+    /// 绘制减速/冰冻状态特效：身体边缘环绕贴合形变的一圈冰蓝冷光，并在身周附着细小精致冰渣。
     /// </summary>
-    private static void DrawFrostIceCrystals(ShapeBatcher batcher, SpriteBatch spriteBatch, Vector2 bodyPos, float bodyRadius, IReadOnlyList<FrostCrystalData> crystals)
+    private static void DrawFrozenSlowEffect(Actor actor, ShapeBatcher batcher, SpriteBatch spriteBatch, Vector2 bodyPos, float bodyRadius)
     {
-        if (crystals == null || crystals.Count == 0) return;
+        // 1. 身体上有一圈常亮的纯净浅色冰蓝光圈（紧密贴合躯干弹性形变，常亮不闪烁）
+        batcher.DrawDeformedCircleOutline(
+            spriteBatch,
+            bodyPos,
+            bodyRadius + 2.2f,
+            actor.Squash.CurrentScale,
+            actor.Squash.DeformationAngle,
+            new Color(185, 238, 255, 230),
+            2.4f
+        );
 
-        Color leftFacetColor = new Color(40, 130, 225, 240);  // 受光面深邃蔚蓝
-        Color rightFacetColor = new Color(15, 65, 155, 245);  // 背光面冷暗深蓝
-        Color rimOutlineColor = new Color(8, 28, 75, 255);    // 外轮廓深邃午夜蓝晶界线
-        Color ringFacetColor = new Color(75, 155, 245, 210);  // 棱柱顶底截面环线
-        Color crestRidgeColor = new Color(185, 225, 255, 250); // 纵贯中轴折射冰晶浅蓝高光棱脊
-
-        Span<Vector2> triVerts = stackalloc Vector2[3];
-        Span<Vector2> quadVerts = stackalloc Vector2[4];
-        Span<Vector2> contourVerts = stackalloc Vector2[6];
-
-        for (int i = 0; i < crystals.Count; i++)
+        // 2. 细小的冰渣附在敌人身上（小巧尖锐的钻石微棱形冰渣，随身体位移与晃动紧密跟随）
+        var crystals = actor.FrostCrystals;
+        if (crystals != null && crystals.Count > 0)
         {
-            var crystal = crystals[i];
-            Vector2 c = bodyPos + crystal.RelativeOffset;
-            float cos = MathF.Cos(crystal.Angle);
-            float sin = MathF.Sin(crystal.Angle);
-            Vector2 u = new(cos, sin);     // 棱柱主轴方向
-            Vector2 v = new(-sin, cos);    // 棱柱法向（横向）
+            Color shardMain = new Color(225, 248, 255, 245); // 极浅冰蓝向光面
+            Color shardShade = new Color(165, 222, 250, 230); // 柔和浅霜蓝阴影面
+            Color shardSpine = new Color(255, 255, 255, 255); // 纯白冰晶脊线高光
+            Color shardOutline = new Color(125, 195, 245, 210); // 浅净冰界线
 
-            float halfLen = crystal.PrismLength * 0.5f;
-            float halfW = crystal.PrismWidth * 0.5f;
-            float pyrH = crystal.PyramidHeight;
+            Span<Vector2> triA = stackalloc Vector2[3];
+            Span<Vector2> triB = stackalloc Vector2[3];
 
-            // 顶面与底面尖顶
-            Vector2 topApex = c + u * (halfLen + pyrH);
-            Vector2 bottomApex = c - u * (halfLen + pyrH);
+            for (int i = 0; i < crystals.Count; i++)
+            {
+                var shard = crystals[i];
+                Vector2 c = bodyPos + shard.RelativeOffset;
+                float cos = MathF.Cos(shard.Angle);
+                float sin = MathF.Sin(shard.Angle);
+                Vector2 u = new(cos, sin);
+                Vector2 v = new(-sin, cos);
 
-            // 棱柱体顶面多边形特征点
-            Vector2 topMid = c + u * halfLen;
-            Vector2 topLeft = c + u * (halfLen * 0.88f) - v * halfW;
-            Vector2 topRight = c + u * (halfLen * 0.88f) + v * halfW;
+                float halfLen = shard.PrismLength * 0.5f;
+                float halfW = shard.PrismWidth * 0.5f;
 
-            // 棱柱体底面多边形特征点
-            Vector2 bottomMid = c - u * halfLen;
-            Vector2 bottomLeft = c - u * (halfLen * 0.88f) - v * halfW;
-            Vector2 bottomRight = c - u * (halfLen * 0.88f) + v * halfW;
+                Vector2 apexTop = c + u * (halfLen + shard.PyramidHeight);
+                Vector2 apexBottom = c - u * halfLen;
+                Vector2 left = c - v * halfW;
+                Vector2 right = c + v * halfW;
 
-            // 1. 绘制左侧受光面 (Light Facets)
-            // 顶锥左侧三角形: topApex -> topLeft -> topMid
-            triVerts[0] = topApex;
-            triVerts[1] = topLeft;
-            triVerts[2] = topMid;
-            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, leftFacetColor);
+                // 左侧多边形
+                triA[0] = apexTop;
+                triA[1] = left;
+                triA[2] = apexBottom;
+                batcher.DrawFilledConvexPolygon(spriteBatch, triA, shardMain);
 
-            // 棱柱左侧四边形: topMid -> topLeft -> bottomLeft -> bottomMid
-            quadVerts[0] = topMid;
-            quadVerts[1] = topLeft;
-            quadVerts[2] = bottomLeft;
-            quadVerts[3] = bottomMid;
-            batcher.DrawFilledConvexPolygon(spriteBatch, quadVerts, leftFacetColor);
+                // 右侧多边形
+                triB[0] = apexTop;
+                triB[1] = right;
+                triB[2] = apexBottom;
+                batcher.DrawFilledConvexPolygon(spriteBatch, triB, shardShade);
 
-            // 底锥左侧三角形: bottomApex -> bottomMid -> bottomLeft
-            triVerts[0] = bottomApex;
-            triVerts[1] = bottomMid;
-            triVerts[2] = bottomLeft;
-            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, leftFacetColor);
+                // 中轴高光棱脊
+                batcher.DrawLine(spriteBatch, apexBottom, apexTop, shardSpine, 1.2f);
 
-            // 2. 绘制右侧背光面 (Shadow Facets)
-            // 顶锥右侧三角形: topApex -> topMid -> topRight
-            triVerts[0] = topApex;
-            triVerts[1] = topMid;
-            triVerts[2] = topRight;
-            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, rightFacetColor);
-
-            // 棱柱右侧四边形: topMid -> bottomMid -> bottomRight -> topRight
-            quadVerts[0] = topMid;
-            quadVerts[1] = bottomMid;
-            quadVerts[2] = bottomRight;
-            quadVerts[3] = topRight;
-            batcher.DrawFilledConvexPolygon(spriteBatch, quadVerts, rightFacetColor);
-
-            // 底锥右侧三角形: bottomApex -> bottomRight -> bottomMid
-            triVerts[0] = bottomApex;
-            triVerts[1] = bottomRight;
-            triVerts[2] = bottomMid;
-            batcher.DrawFilledConvexPolygon(spriteBatch, triVerts, rightFacetColor);
-
-            // 3. 绘制外轮廓深蓝晶界线
-            contourVerts[0] = topApex;
-            contourVerts[1] = topRight;
-            contourVerts[2] = bottomRight;
-            contourVerts[3] = bottomApex;
-            contourVerts[4] = bottomLeft;
-            contourVerts[5] = topLeft;
-            batcher.DrawPolygonOutline(spriteBatch, contourVerts, rimOutlineColor, 1.8f);
-
-            // 4. 绘制棱柱体与顶底双锥的截面交界线
-            batcher.DrawLine(spriteBatch, topLeft, topMid, ringFacetColor, 1.4f);
-            batcher.DrawLine(spriteBatch, topMid, topRight, ringFacetColor, 1.4f);
-            batcher.DrawLine(spriteBatch, bottomLeft, bottomMid, ringFacetColor, 1.4f);
-            batcher.DrawLine(spriteBatch, bottomMid, bottomRight, ringFacetColor, 1.4f);
-
-            // 5. 绘制贯穿顶底尖端的折射棱脊线 (Crest Ridge)
-            batcher.DrawLine(spriteBatch, topApex, topMid, crestRidgeColor, 1.8f);
-            batcher.DrawLine(spriteBatch, topMid, bottomMid, crestRidgeColor, 1.8f);
-            batcher.DrawLine(spriteBatch, bottomMid, bottomApex, crestRidgeColor, 1.8f);
+                // 细小外轮廓
+                batcher.DrawLine(spriteBatch, apexTop, left, shardOutline, 1.0f);
+                batcher.DrawLine(spriteBatch, left, apexBottom, shardOutline, 1.0f);
+                batcher.DrawLine(spriteBatch, apexBottom, right, shardOutline, 1.0f);
+                batcher.DrawLine(spriteBatch, right, apexTop, shardOutline, 1.0f);
+            }
         }
-
-        // 身体表面微弱极寒冰霜光晕轮廓
-        batcher.DrawCircleOutline(spriteBatch, bodyPos, bodyRadius + 2.5f, new Color(30, 95, 205) * 0.55f, 2.0f);
     }
 }

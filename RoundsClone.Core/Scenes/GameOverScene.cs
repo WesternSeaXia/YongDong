@@ -18,6 +18,8 @@ public class GameOverScene : IScene
     private Rectangle _btnRematch;
     private Rectangle _btnMenu;
 
+    private int _lastHoveredBtn = -1;
+
     public GameOverScene(SceneManager manager, Action exitAction)
     {
         _manager = manager;
@@ -43,13 +45,25 @@ public class GameOverScene : IScene
         Vector2 mousePos = _manager.Input.VirtualMousePosition;
         bool click = _manager.Input.IsLeftClickJustPressed();
 
+        int hovered = -1;
+        if (_btnRematch.Contains(mousePos)) hovered = 1;
+        else if (_btnMenu.Contains(mousePos)) hovered = 2;
+
+        if (hovered != -1 && hovered != _lastHoveredBtn)
+        {
+            _manager.Audio.PlayUiHover();
+        }
+        _lastHoveredBtn = hovered;
+
         if (_btnRematch.Contains(mousePos) && click)
         {
+            _manager.Audio.PlayUiClick();
             _manager.ResetMatch();
             _manager.ChangeScene(new StageSelectScene(_manager, _exitAction));
         }
         else if (_btnMenu.Contains(mousePos) && click)
         {
+            _manager.Audio.PlayUiClick();
             _manager.ResetMatch();
             _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
         }

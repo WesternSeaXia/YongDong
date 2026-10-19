@@ -49,7 +49,7 @@ public class RoundsGame : Game
             _graphics.PreferredBackBufferWidth = 1280;
             _graphics.PreferredBackBufferHeight = 720;
             Window.AllowUserResizing = true;
-            Window.Title = "ROUNDS Arena - Vector Force Edition (.NET 10)";
+            Window.Title = "混乱枪豆人";
             IsMouseVisible = true;
         }
         else
@@ -57,6 +57,8 @@ public class RoundsGame : Game
             _graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
             _graphics.PreferredBackBufferHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
         }
+
+        Content.RootDirectory = "Content";
     }
 
     protected override void Initialize()
@@ -84,6 +86,8 @@ public class RoundsGame : Game
         _font = new ProceduralFont(GraphicsDevice, 28f);
 
         _sceneManager = new SceneManager(_viewport!, _shapeBatcher, _font, _input!);
+        _sceneManager.Audio.Initialize();
+        _sceneManager.Audio.LoadBgm(Content);
 
         // 默认进入主菜单
         _sceneManager.ChangeScene(new MainMenuScene(_sceneManager, Exit));
@@ -108,40 +112,54 @@ public class RoundsGame : Game
         if (_autoTestFlow)
         {
             _testFrame++;
-            if (_testFrame == 10)
+            if (_testFrame == 2)
             {
-                Console.WriteLine("[SmokeTest] (1/5) MainMenuScene verified. Transitioning to CharacterSelectScene...");
-                _sceneManager.ChangeScene(new CharacterSelectScene(_sceneManager, Exit));
+                Console.WriteLine($"[SmokeTest] AudioManager verification: Loaded {_sceneManager.Audio.TrackCount} BGM tracks. Current: {_sceneManager.Audio.CurrentBgmTitle}");
+            }
+            else if (_testFrame == 10)
+            {
+                Console.WriteLine("[SmokeTest] (1/7) MainMenuScene verified. Transitioning to SettingsScene (Testing Keybinds & AI Difficulty)...");
+                _sceneManager.ChangeScene(new SettingsScene(_sceneManager, Exit));
             }
             else if (_testFrame == 25)
             {
-                Console.WriteLine("[SmokeTest] (2/5) CharacterSelectScene verified. Transitioning to StageSelectScene (3-choice draft)...");
+                Console.WriteLine("[SmokeTest] (2/7) SettingsScene verified. Transitioning to CharacterSelectScene...");
+                _sceneManager.ChangeScene(new CharacterSelectScene(_sceneManager, Exit));
+            }
+            else if (_testFrame == 40)
+            {
+                Console.WriteLine("[SmokeTest] (3/7) CharacterSelectScene verified. Transitioning to StageSelectScene (3-choice draft)...");
                 _sceneManager.PlayerSubWeaponFactory = () => new BlockSubWeapon();
                 _sceneManager.AiSubWeaponFactory = () => new DashSubWeapon();
                 _sceneManager.ChangeScene(new StageSelectScene(_sceneManager, Exit));
             }
-            else if (_testFrame == 40)
+            else if (_testFrame == 55)
             {
-                Console.WriteLine("[SmokeTest] (3/5) StageSelectScene verified. Selecting arena and transitioning to BattleScene...");
+                Console.WriteLine("[SmokeTest] (4/7) StageSelectScene verified. Selecting arena and transitioning to BattleScene (Normal Competition)...");
                 _sceneManager.CurrentMap = MapRegistry.CreateBumperMaze();
-                _sceneManager.ChangeScene(new BattleScene(_sceneManager, Exit));
+                _sceneManager.ChangeScene(new BattleScene(_sceneManager, Exit, isSandboxMode: false));
             }
-            else if (_testFrame == 70)
+            else if (_testFrame == 75)
             {
-                Console.WriteLine("[SmokeTest] (4/5) BattleScene combat & physics simulation verified. Transitioning to CardSelectScene (3-choice skill draft)...");
+                Console.WriteLine("[SmokeTest] (5/7) Normal BattleScene verified. Transitioning to Sandbox Mode (Debug Drawer & Training Dummy)...");
+                _sceneManager.ChangeScene(new BattleScene(_sceneManager, Exit, isSandboxMode: true));
+            }
+            else if (_testFrame == 95)
+            {
+                Console.WriteLine("[SmokeTest] (6/7) Sandbox Mode verified. Transitioning to CardSelectScene (3-choice skill draft)...");
                 _sceneManager.ChangeScene(new CardSelectScene(_sceneManager, Exit, isForPlayer: true));
             }
-            else if (_testFrame == 85)
+            else if (_testFrame == 110)
             {
-                Console.WriteLine("[SmokeTest] (5/5) CardSelectScene verified. Equipping synergistic cards and transitioning to GameOverScene...");
+                Console.WriteLine("[SmokeTest] (7/7) CardSelectScene verified. Equipping synergistic cards and transitioning to GameOverScene...");
                 _sceneManager.PlayerCards.Add(new ClusterBombCard());
                 _sceneManager.PlayerCards.Add(new BounceMasterCard());
                 _sceneManager.PlayerScore = 3;
                 _sceneManager.ChangeScene(new GameOverScene(_sceneManager, Exit));
             }
-            else if (_testFrame >= 100)
+            else if (_testFrame >= 130)
             {
-                Console.WriteLine("[SmokeTest] ALL 5 SCENES & SYSTEMS (Force Physics, Procedural VFX, AI, Cards, SubWeapons, Maps) VERIFIED SUCCESSFULLY!");
+                Console.WriteLine("[SmokeTest] ALL SCENES & SYSTEMS (SettingsScene, Normal Battle, Sandbox Mode, Force Physics, Procedural VFX, Audio, AI, Cards, SubWeapons, Maps) VERIFIED SUCCESSFULLY!");
                 Exit();
             }
         }

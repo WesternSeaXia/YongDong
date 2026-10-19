@@ -27,11 +27,32 @@ public class Camera2D
     /// </summary>
     public bool IsEnabled => GameSettings.Current.DynamicCameraEnabled;
 
+    private Vector2? _focusTargetPos = null;
+    private float _focusTargetZoom = 1.35f;
+
+    /// <summary>
+    /// 触发终局特写运镜：镜头平滑拉近并聚焦于终结击杀目标位置。
+    /// </summary>
+    public void FocusOnTarget(Vector2 worldPos, float targetZoom = 1.35f)
+    {
+        _focusTargetPos = worldPos;
+        _focusTargetZoom = targetZoom;
+    }
+
+    /// <summary>
+    /// 解除单点特写聚焦，恢复双人常规战斗运镜。
+    /// </summary>
+    public void ClearFocus()
+    {
+        _focusTargetPos = null;
+    }
+
     /// <summary>
     /// 重置摄像机到默认全景位置与缩放。
     /// </summary>
     public void Reset()
     {
+        _focusTargetPos = null;
         Position = new Vector2(960f, 540f);
         Zoom = 1.0f;
     }
@@ -43,6 +64,18 @@ public class Camera2D
     {
         Vector2 defaultCenter = new(960f, 540f);
         const float defaultZoom = 1.0f;
+
+        if (_focusTargetPos.HasValue)
+        {
+            const float focusMargin = 260f;
+            float fx = MathHelper.Clamp(_focusTargetPos.Value.X, -focusMargin, VirtualViewport.VirtualWidth + focusMargin);
+            float fy = MathHelper.Clamp(_focusTargetPos.Value.Y, -focusMargin, VirtualViewport.VirtualHeight + focusMargin);
+            Vector2 focusTarget = new(fx, fy);
+
+            Position = Vector2.Lerp(Position, focusTarget, MathHelper.Clamp(dt * 3.8f, 0f, 1f));
+            Zoom = MathHelper.Lerp(Zoom, _focusTargetZoom, MathHelper.Clamp(dt * 3.2f, 0f, 1f));
+            return;
+        }
 
         if (!IsEnabled || player == null || ai == null)
         {

@@ -339,12 +339,19 @@ public class InputManager
         ControlInputState input = default;
         float deadzoneRadius = StickRadius * StickDeadzoneRatio;
 
-        // 1. 移动力矢量（带中心死区过滤与平滑线性映射）
+        // 1. 移动力矢量（根据玩家设置的键位预设方案动态判定）
         Vector2 move = Vector2.Zero;
-        if (_currKeyboard.IsKeyDown(Keys.A) || _currKeyboard.IsKeyDown(Keys.Left)) move.X -= 1f;
-        if (_currKeyboard.IsKeyDown(Keys.D) || _currKeyboard.IsKeyDown(Keys.Right)) move.X += 1f;
-        if (_currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up)) move.Y -= 1f;
-        if (_currKeyboard.IsKeyDown(Keys.S) || _currKeyboard.IsKeyDown(Keys.Down)) move.Y += 1f;
+        int preset = GameSettings.Current.KeybindPreset;
+
+        bool moveLeft = preset == 1 ? _currKeyboard.IsKeyDown(Keys.Left) : (_currKeyboard.IsKeyDown(Keys.A) || _currKeyboard.IsKeyDown(Keys.Left));
+        bool moveRight = preset == 1 ? _currKeyboard.IsKeyDown(Keys.Right) : (_currKeyboard.IsKeyDown(Keys.D) || _currKeyboard.IsKeyDown(Keys.Right));
+        bool moveUp = preset == 1 ? _currKeyboard.IsKeyDown(Keys.Up) : (_currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up));
+        bool moveDown = preset == 1 ? _currKeyboard.IsKeyDown(Keys.Down) : (_currKeyboard.IsKeyDown(Keys.S) || _currKeyboard.IsKeyDown(Keys.Down));
+
+        if (moveLeft) move.X -= 1f;
+        if (moveRight) move.X += 1f;
+        if (moveUp) move.Y -= 1f;
+        if (moveDown) move.Y += 1f;
 
         if (_leftStickActive && _leftKnobOffset.Length() > deadzoneRadius)
         {
@@ -368,8 +375,21 @@ public class InputManager
         }
         input.MoveVector = new Vector2(MathHelper.Clamp(move.X, -1f, 1f), MathHelper.Clamp(move.Y, -1f, 1f));
 
-        // 2. 跳跃检测（根据设置项决定左侧摇杆上推是否触发跳跃）
-        bool jumpKey = _currKeyboard.IsKeyDown(Keys.Space) || _currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up);
+        // 2. 跳跃检测（根据预设方案与设置项决定）
+        bool jumpKey;
+        if (preset == 1) // 方向键预设：上箭头或右Ctrl
+        {
+            jumpKey = _currKeyboard.IsKeyDown(Keys.Up) || _currKeyboard.IsKeyDown(Keys.RightControl);
+        }
+        else if (preset == 2) // W 跳跃预设：W 键或上箭头
+        {
+            jumpKey = _currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up);
+        }
+        else // 标准预设：空格、W、上箭头
+        {
+            jumpKey = _currKeyboard.IsKeyDown(Keys.Space) || _currKeyboard.IsKeyDown(Keys.W) || _currKeyboard.IsKeyDown(Keys.Up);
+        }
+
         bool stickUpJump = LeftStickJumpEnabled &&
                            _leftStickActive &&
                            _leftKnobOffset.Length() > deadzoneRadius &&

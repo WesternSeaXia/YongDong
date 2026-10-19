@@ -25,6 +25,7 @@ public interface IAiBrain
     /// <param name="world">物理碰撞世界</param>
     /// <param name="map">当前地图环境数据（提供地形类型、陷阱分布与动态机关感知）</param>
     /// <param name="dt">帧时间步长 (秒)</param>
+    /// <param name="toxicClouds">全场活跃毒气云雾列表（环境危害感知）</param>
     /// <returns>计算出的统一控制操作意图</returns>
-    ControlInputState Think(Actor self, Actor target, IReadOnlyList<Projectile> projectiles, CollisionWorld world, MapData map, float dt);
+    ControlInputState Think(Actor self, Actor target, IReadOnlyList<Projectile> projectiles, CollisionWorld world, MapData map, float dt, IReadOnlyList<ToxicCloud>? toxicClouds = null);
 }

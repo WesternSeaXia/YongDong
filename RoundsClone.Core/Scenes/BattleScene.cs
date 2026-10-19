@@ -46,11 +46,40 @@ public class BattleScene : IScene
     private float _playerHealthDisplay = 100f;
     private float _aiHealthDisplay = 100f;
 
-    public BattleScene(SceneManager manager, Action exitAction)
+    // 暂停菜单状态与交互布局
+    private bool _isPaused = false;
+    private readonly MusicSelectorModal _musicModal = new();
+    private Rectangle _pauseBoxRect;
+    private Rectangle _btnResume;
+    private Rectangle _btnReturnToMenu;
+    private Rectangle _btnMasterMinus, _btnMasterPlus, _barMasterVolume;
+    private Rectangle _btnBgmMinus, _btnBgmPlus, _barBgmVolume;
+    private Rectangle _btnSfxMinus, _btnSfxPlus, _barSfxVolume;
+    private Rectangle _btnPrevBgm, _btnNextBgm, _btnOpenMusicList;
+    private Rectangle _btnBgmMode;
+    private Rectangle _btnPauseAiDiff;
+    private int _lastHoveredPauseBtn = -1;
+    private readonly bool _isSandboxMode;
+
+    public BattleScene(SceneManager manager, Action exitAction, bool isSandboxMode = false)
     {
         _manager = manager;
         _exitAction = exitAction;
+        _isSandboxMode = isSandboxMode;
+        _manager.IsSandboxMode = isSandboxMode;
         _map = _manager.CurrentMap ?? MapRegistry.CreateClassicArena();
+
+        if (_isSandboxMode)
+        {
+            _debugDrawer.IsOpen = true;
+            _debugDrawer.IsDummyMode = true;
+        }
+        else
+        {
+            _debugDrawer.IsOpen = false;
+            _debugDrawer.IsDummyMode = false;
+            _debugDrawer.InfiniteAmmo = false;
+        }
 
         _player = new Actor(_map.PlayerSpawn, _manager.PlayerColor, isAi: false)
         {
@@ -65,11 +94,14 @@ public class BattleScene : IScene
             EyeStyle = _manager.AiEyeStyle,
             SubWeapon = _manager.AiSubWeaponFactory()
         };
+
+        InitPauseMenuLayout();
     }
 
     /// <inheritdoc />
     public void Enter()
     {
+        _isPaused = false;
         _world.Clear();
         _map.BuildPhysicsWorld(_world);
 
@@ -108,26 +140,94 @@ public class BattleScene : IScene
         _player.OnRadiancePulse += HandleRadiancePulse;
         _ai.OnRadiancePulse -= HandleRadiancePulse;
         _ai.OnRadiancePulse += HandleRadiancePulse;
+
+        _player.OnReloadCompleted -= HandleReloadCompleted;
+        _player.OnReloadCompleted += HandleReloadCompleted;
+        _ai.OnReloadCompleted -= HandleReloadCompleted;
+        _ai.OnReloadCompleted += HandleReloadCompleted;
+
+        _player.OnSubWeaponActivated -= HandleSubWeaponActivated;
+        _player.OnSubWeaponActivated += HandleSubWeaponActivated;
+        _ai.OnSubWeaponActivated -= HandleSubWeaponActivated;
+        _ai.OnSubWeaponActivated += HandleSubWeaponActivated;
+
+        _player.OnShieldTriggered -= HandleShieldTriggered;
+        _player.OnShieldTriggered += HandleShieldTriggered;
+        _ai.OnShieldTriggered -= HandleShieldTriggered;
+        _ai.OnShieldTriggered += HandleShieldTriggered;
+
+        _player.OnJumped -= HandleActorJumped;
+        _player.OnJumped += HandleActorJumped;
+        _ai.OnJumped -= HandleActorJumped;
+        _ai.OnJumped += HandleActorJumped;
+
+        _player.OnStep -= HandleActorStep;
+        _player.OnStep += HandleActorStep;
+        _ai.OnStep -= HandleActorStep;
+        _ai.OnStep += HandleActorStep;
+
+        _player.OnPhoenixRevived -= HandlePhoenixRevived;
+        _player.OnPhoenixRevived += HandlePhoenixRevived;
+        _ai.OnPhoenixRevived -= HandlePhoenixRevived;
+        _ai.OnPhoenixRevived += HandlePhoenixRevived;
+
+        _player.OnDryFire -= HandleDryFire;
+        _player.OnDryFire += HandleDryFire;
+        _ai.OnDryFire -= HandleDryFire;
+        _ai.OnDryFire += HandleDryFire;
+
+        _player.OnPoisonTick -= HandlePoisonTick;
+        _player.OnPoisonTick += HandlePoisonTick;
+        _ai.OnPoisonTick -= HandlePoisonTick;
+        _ai.OnPoisonTick += HandlePoisonTick;
+
+        _player.OnTeleported -= HandleTeleported;
+        _player.OnTeleported += HandleTeleported;
+        _ai.OnTeleported -= HandleTeleported;
+        _ai.OnTeleported += HandleTeleported;
     }
 
     /// <inheritdoc />
     public void Update(float rawDt)
     {
-        float dt = rawDt * _timeScale;
-
-        // 0. 更新自选卡牌调试抽屉与靶桩控制器
-        _debugDrawer.Update(rawDt, _manager.Input, _player, _ai);
-        if (_debugDrawer.InfiniteAmmo)
+        // 优先让曲库弹窗捕获 ESC 与鼠标操作
+        if (_musicModal.IsOpen)
         {
-            _player.CurrentAmmo = _player.MaxAmmo;
-            _player.ReloadTimer = 0f;
+            _musicModal.Update(_manager.Input, _manager.Audio);
+            return;
         }
 
-        // 1. 采集玩家输入与 AI 决策（若开启靶桩模式，AI 变为不攻击不移动的物理木桩）
+        // ESC 键随时切换暂停/继续状态
+        if (_manager.Input.IsKeyJustPressed(Keys.Escape))
+        {
+            _isPaused = !_isPaused;
+            return;
+        }
+
+        if (_isPaused)
+        {
+            UpdatePauseMenu();
+            return;
+        }
+
+        float dt = rawDt * _timeScale;
+
+        // 0. 更新自选卡牌调试抽屉与靶桩控制器（仅沙盒模式可用）
+        if (_isSandboxMode)
+        {
+            _debugDrawer.Update(rawDt, _manager.Input, _player, _ai, _manager.Audio);
+            if (_debugDrawer.InfiniteAmmo)
+            {
+                _player.CurrentAmmo = _player.MaxAmmo;
+                _player.ReloadTimer = 0f;
+            }
+        }
+
+        // 1. 采集玩家输入与 AI 决策（若处于沙盒模式且开启靶桩模式，AI 变为不攻击不移动的物理木桩）
         ControlInputState playerInput = _manager.Input.GetPlayerInputState(_player, _camera.ScreenToWorld);
-        ControlInputState aiInput = _debugDrawer.IsDummyMode
+        ControlInputState aiInput = (_isSandboxMode && _debugDrawer.IsDummyMode)
             ? ControlInputState.Empty
-            : _aiBrain.Think(_ai, _player, _projectiles, _world, _map, dt);
+            : _aiBrain.Think(_ai, _player, _projectiles, _world, _map, dt, _toxicClouds);
 
         // 2. 更新角色实体
         _player.Update(dt, playerInput, _world, _manager.Particles, _manager.Shake, SpawnProjectile);
@@ -177,17 +277,43 @@ public class BattleScene : IScene
 
         // 8. 回合终局判定与流转
         UpdateRoundLifecycle(rawDt);
-
-        // ESC 键随时返回主菜单
-        if (_manager.Input.IsKeyJustPressed(Keys.Escape))
-        {
-            _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
-        }
     }
 
     private void UpdateRoundLifecycle(float rawDt)
     {
-        if (_debugDrawer.IsDummyMode) return;
+        if (_isSandboxMode)
+        {
+            if (_debugDrawer.IsDummyMode) return;
+
+            // 沙盒模式非木桩状态下的对决演练：角色死亡后平滑原地重生复位，不中断沙盒测试流程
+            if (!_roundEnded)
+            {
+                if (_player.IsDead || _ai.IsDead)
+                {
+                    _roundEnded = true;
+                    _roundEndTimer = 0f;
+                    _timeScale = 0.25f;
+                    _manager.Shake.AddTrauma(0.5f);
+                    _manager.Audio.PlayDeath();
+                    Vector2 victimPos = _player.IsDead ? _player.Body.Position : _ai.Body.Position;
+                    _camera.FocusOnTarget(victimPos, 1.30f);
+                }
+            }
+            else
+            {
+                _roundEndTimer += rawDt;
+                if (_roundEndTimer >= 1.2f)
+                {
+                    _player.ResetState(_map.PlayerSpawn);
+                    _ai.ResetState(_map.AiSpawn);
+                    _roundEnded = false;
+                    _roundEndTimer = 0f;
+                    _timeScale = 1.0f;
+                    _camera.ClearFocus();
+                }
+            }
+            return;
+        }
 
         if (!_roundEnded)
         {
@@ -195,8 +321,12 @@ public class BattleScene : IScene
             {
                 _roundEnded = true;
                 _roundEndTimer = 0f;
-                _timeScale = 0.25f;
-                _manager.Shake.AddTrauma(0.7f);
+                _timeScale = 0.18f; // 终局击杀慢动作 (Slow Motion)
+                _manager.Shake.AddTrauma(0.75f);
+                _manager.Audio.PlayDeath(); // 播放深沉终结重音
+
+                Vector2 victimPos = _player.IsDead ? _player.Body.Position : _ai.Body.Position;
+                _camera.FocusOnTarget(victimPos, 1.38f); // 击杀特写镜头拉近！
 
                 _playerWonRound = !(_player.IsDead && _ai.IsDead) && !_player.IsDead;
 
@@ -211,6 +341,8 @@ public class BattleScene : IScene
             _roundEndTimer += rawDt;
             if (_roundEndTimer >= 1.6f)
             {
+                _camera.ClearFocus();
+                _timeScale = 1.0f;
                 if (_manager.PlayerScore >= SceneManager.TargetWins || _manager.AiScore >= SceneManager.TargetWins)
                 {
                     _manager.ChangeScene(new GameOverScene(_manager, _exitAction));
@@ -235,6 +367,7 @@ public class BattleScene : IScene
     private void SpawnProjectile(Projectile p)
     {
         _spawnQueue.Add(p);
+        _manager.Audio.PlayShoot();
     }
 
     private void OnPhysicsCollision(CollisionManifold m)
@@ -253,7 +386,8 @@ public class BattleScene : IScene
         {
             Vector2 spikeForce = -m.Normal * 450f;
             actor.TakeDamage(18f, null, spikeForce, _manager.Particles, _manager.Shake);
-            if (_debugDrawer.IsDummyMode && actor == _ai)
+            _manager.Audio.PlayHit();
+            if (_isSandboxMode && _debugDrawer.IsDummyMode && actor == _ai)
             {
                 _ai.CurrentHealth = _ai.MaxHealth;
             }
@@ -381,20 +515,38 @@ public class BattleScene : IScene
                         hitTarget.TakeDamage(proj.Damage, proj.Owner, hitForce, _manager.Particles, _manager.Shake);
                     }
 
-                    // 靶桩模式：记录有效伤害并锁血复原
-                    if (_debugDrawer.IsDummyMode && hitTarget == _ai)
+                    _manager.Audio.PlayHit();
+                    if (proj.Owner.AppliedCards.Exists(c => c is FrostFreezeCard))
+                    {
+                        // 敌人被开始冻住时播放冰冻音效
+                        if (hitTarget.SlowTimer <= 0.25f)
+                        {
+                            _manager.Audio.PlayFreeze();
+                        }
+                    }
+
+                    // 靶桩模式：记录有效伤害并锁血复原（仅沙盒模式）
+                    if (_isSandboxMode && _debugDrawer.IsDummyMode && hitTarget == _ai)
                     {
                         _debugDrawer.RecordDummyDamage(proj.Damage);
                         _ai.CurrentHealth = _ai.MaxHealth;
                     }
 
-                    // 以战养战 (Scavenger)：直接子弹伤害命中即刻返还 1 发弹药（打出末发后进入正常换弹，该末发不加子弹）
+                    // 以战养战 (Scavenger)：直接子弹伤害命中即刻返还 1 发弹药入膛；若正处于换弹状态，立即解除换弹锁定并装填入膛
                     if (proj.CanScavengeAmmo && proj.Owner != null && proj.Owner.HasScavenger)
                     {
-                        if (proj.Owner.CurrentAmmo < proj.Owner.MaxAmmo)
+                        var owner = proj.Owner;
+                        if (owner.IsReloading)
                         {
-                            proj.Owner.CurrentAmmo = Math.Min(proj.Owner.MaxAmmo, proj.Owner.CurrentAmmo + 1);
-                            _manager.Particles.EmitHitSparks(proj.Owner.Body.Position, Vector2.UnitY, ColorPalette.PlayerGreen, 6);
+                            owner.ReloadTimer = 0f;
+                            owner.RadianceTimer = 0f;
+                            owner.CurrentAmmo = Math.Min(owner.MaxAmmo, owner.CurrentAmmo + 1);
+                            _manager.Particles.EmitHitSparks(owner.Body.Position, Vector2.UnitY, ColorPalette.PlayerGreen, 12);
+                        }
+                        else if (owner.CurrentAmmo < owner.MaxAmmo)
+                        {
+                            owner.CurrentAmmo = Math.Min(owner.MaxAmmo, owner.CurrentAmmo + 1);
+                            _manager.Particles.EmitHitSparks(owner.Body.Position, Vector2.UnitY, ColorPalette.PlayerGreen, 8);
                         }
                     }
 
@@ -452,6 +604,7 @@ public class BattleScene : IScene
                 proj.Body.Position = hit.Point;
                 TriggerProjectileImpact(proj, null, m);
                 _manager.Particles.EmitHitSparks(hit.Point, hit.Normal, proj.BulletColor, 8);
+                _manager.Audio.PlayWallHit();
                 proj.Destroy();
                 break;
             }
@@ -479,20 +632,19 @@ public class BattleScene : IScene
                 // 安全移出墙体表面防粘连
                 proj.Body.Position = hit.Point + normal * (proj.Radius + 1.5f);
 
-                // 目标折射 (Target Bounce)：仅当敌人在子弹反弹朝向的前半平面（垂线前方）时才触发追踪折射
-                // 若敌人在反弹朝向的后方半平面（Dot <= 0），则保持自然物理反射，彻底避免往左开枪反弹回射右侧敌人的荒谬现象
-                if (proj.HasTargetBounce && !proj.HasTargetBounced)
+                // 目标折射 (Target Bounce)：多次弹射均可持续追踪折射！
+                // 只要敌人在当前碰撞表面朝向的外侧半空间（Vector2.Dot(normal, toEnemy) > 0.05f），每次反弹均可精准重新锁定折射敌人
+                if (proj.HasTargetBounce)
                 {
                     Actor enemy = (proj.Owner == _player) ? _ai : _player;
                     if (!enemy.IsDead)
                     {
                         Vector2 toEnemy = enemy.Body.Position - hit.Point;
-                        // 垂线半平面判定：反弹物理速度与目标方位向量的点积必须大于 0（处于子弹反射前方 180 度半球）
-                        if (Vector2.Dot(reflectedVel, toEnemy) > 0f)
+                        // 碰撞表面法向半空间判定：敌人位于该反射表面正面空间（避免穿墙反向折射）
+                        if (Vector2.Dot(normal, toEnemy) > 0.05f)
                         {
-                            proj.HasTargetBounced = true;
                             Vector2 startPos = proj.Body.Position;
-                            Vector2 targetPos = enemy.Body.Position; // 锁定子弹碰撞瞬间敌人的原始坐标
+                            Vector2 targetPos = enemy.Body.Position; // 锁定子弹碰撞瞬间敌人的坐标
 
                             float effG = _world.Gravity.Y * proj.Body.GravityScale * 1.075f;
                             float desiredSpeed = MathF.Max(proj.Body.Velocity.Length(), 820f);
@@ -509,6 +661,7 @@ public class BattleScene : IScene
                 if (proj.SpawnsToxicCloud)
                 {
                     _toxicClouds.Add(new ToxicCloud(hit.Point, proj.Owner, 3.5f, ToxicCloud.DefaultRadius));
+                    _manager.Audio.PlayToxicGas();
                 }
 
                 // 卡牌钩子通知与火花
@@ -516,7 +669,23 @@ public class BattleScene : IScene
                 {
                     card.OnProjectileBounce(proj, m, SpawnProjectile, _manager.Particles);
                 }
+
+                // 反弹爆炸判定：若子弹拥有爆炸属性（如集束爆破或自带爆炸半径），反弹时也触发爆炸杀伤与爆炸音效
+                bool causesBounceExplosion = proj.ExplosionRadius > 0f || proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard);
+                if (causesBounceExplosion)
+                {
+                    float bounceSplashRadius = MathF.Max(proj.ExplosionRadius * 0.75f, 50f);
+                    ApplySplashDamage(proj, hit.Point, bounceSplashRadius, null);
+                    if (!proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard))
+                    {
+                        _manager.Particles.EmitExplosion(hit.Point, bounceSplashRadius, ColorPalette.ExplosiveOrange, 18);
+                    }
+                    _manager.Shake.AddTrauma(0.35f);
+                    _manager.Audio.PlayExplosion();
+                }
+
                 _manager.Particles.EmitHitSparks(hit.Point, normal, proj.BulletColor, 6);
+                _manager.Audio.PlayBounce();
             }
         }
     }
@@ -532,6 +701,7 @@ public class BattleScene : IScene
         if (proj.SpawnsToxicCloud)
         {
             _toxicClouds.Add(new ToxicCloud(impactPos, proj.Owner, 3.5f, ToxicCloud.DefaultRadius));
+            _manager.Audio.PlayToxicGas();
         }
 
         // 1. 触发所有已挂载卡牌的 OnProjectileHit 拦截器
@@ -552,13 +722,20 @@ public class BattleScene : IScene
                 _manager.Particles.EmitBlackHoleImplosion(impactPos, 75f, ColorPalette.ElectricPurple);
                 _manager.Shake.AddTrauma(0.42f);
             }
+            _manager.Audio.PlayBlackHole();
         }
 
-        // 3. 范围爆破冲击波溅射伤害（若装备集束爆破或具备爆炸属性，产生真实范围杀伤）
-        float splashRadius = MathF.Max(proj.ExplosionRadius, proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard) ? 100f : 0f);
+        // 3. 范围爆破冲击波溅射伤害（若装备集束爆破或具备爆炸属性，产生真实范围杀伤与爆炸特效）
+        float splashRadius = MathF.Max(proj.ExplosionRadius, proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard) ? 75f : 0f);
         if (splashRadius > 0f)
         {
             ApplySplashDamage(proj, impactPos, splashRadius, hitTarget);
+            if (!proj.Owner.AppliedCards.Exists(c => c is ClusterBombCard))
+            {
+                _manager.Particles.EmitExplosion(impactPos, splashRadius, ColorPalette.ExplosiveOrange);
+                _manager.Shake.AddTrauma(0.50f);
+            }
+            _manager.Audio.PlayExplosion();
         }
     }
 
@@ -694,10 +871,14 @@ public class BattleScene : IScene
     {
         if (proj.IsDestroyed || proj.Owner == defender) return;
 
-        if (defender.SubWeapon is BlockSubWeapon block && block.IsActive)
+        BlockSubWeapon? activeBlock = (defender.SubWeapon is BlockSubWeapon b && b.IsActive)
+            ? b
+            : (defender.PassiveShield.IsActive ? defender.PassiveShield : null);
+
+        if (activeBlock != null)
         {
             float dist = Vector2.Distance(proj.Body.Position, defender.Body.Position);
-            if (dist <= block.ShieldRadius + proj.Radius)
+            if (dist <= activeBlock.ShieldRadius + proj.Radius)
             {
                 // 反弹子弹的方向改为子弹来时的方向（反向沿原路高速射回发射源）
                 Vector2 incomingDir = MathHelper2D.SafeNormalize(proj.Body.Velocity);
@@ -709,10 +890,12 @@ public class BattleScene : IScene
                 // 纯白高光偏转火花与闪光特效
                 _manager.Particles.EmitHitSparks(proj.Body.Position, -incomingDir, Color.White, 14);
                 _manager.Shake.AddTrauma(0.35f);
+                _manager.Audio.PlayBlock(); // 弹反成功瞬间爆发清脆悦耳的金属“叮~”！
 
                 if (defender.AppliedCards.Exists(c => c is AbsoluteParryCard))
                 {
-                    block.CurrentCooldown = 0f;
+                    if (defender.SubWeapon != null) defender.SubWeapon.CurrentCooldown = 0f;
+                    activeBlock.CurrentCooldown = 0f;
                     proj.Damage *= 1.5f;
                 }
             }
@@ -760,8 +943,11 @@ public class BattleScene : IScene
         _player.Draw(batcher, spriteBatch);
         _ai.Draw(batcher, spriteBatch);
 
-        // 绘制训练靶桩头顶信息（DPS、单发、累计）
-        _debugDrawer.DrawDummyWorldHud(batcher, spriteBatch, font, _ai);
+        // 绘制训练靶桩头顶信息（DPS、单发、累计，仅沙盒模式）
+        if (_isSandboxMode && _debugDrawer.IsDummyMode)
+        {
+            _debugDrawer.DrawDummyWorldHud(batcher, spriteBatch, font, _ai);
+        }
 
         spriteBatch.End();
 
@@ -797,8 +983,23 @@ public class BattleScene : IScene
 
         _manager.Input.DrawTouchControls(batcher, spriteBatch, font, _player);
 
-        // 绘制卡牌实验室 / 调试抽屉与悬浮提示框
-        _debugDrawer.Draw(batcher, spriteBatch, font, _player, _ai);
+        // 绘制卡牌实验室 / 调试抽屉与悬浮提示框（仅沙盒模式可用）
+        if (_isSandboxMode)
+        {
+            _debugDrawer.Draw(batcher, spriteBatch, font, _player, _ai);
+
+            if (!_isPaused && !_debugDrawer.IsOpen)
+            {
+                Vector2 bannerPos = new(VirtualViewport.VirtualWidth * 0.5f, 24f);
+                font.DrawText(spriteBatch, "[沙盒模式] 按 ~ 或 F1 打开卡牌抽屉 | F3 木桩 | F4 无限弹药 | H 满血",
+                    bannerPos, Color.Cyan * 0.80f, 0.85f, new Vector2(0.5f, 0.5f));
+            }
+        }
+
+        if (_isPaused)
+        {
+            DrawPauseMenu(batcher, spriteBatch, font);
+        }
 
         // 保持批处理开启返回，以便匹配宿主 RoundsGame.Draw 的统一 End() 调用
     }
@@ -900,11 +1101,429 @@ public class BattleScene : IScene
         return launchVel;
     }
 
+    private void HandleReloadCompleted(Actor actor)
+    {
+        _manager.Audio.PlayReload();
+    }
+
+    private void HandleSubWeaponActivated(Actor actor, ISubWeapon weapon)
+    {
+        if (weapon is DashSubWeapon)
+        {
+            _manager.Audio.PlayDash();
+        }
+        else if (weapon is BlockSubWeapon)
+        {
+            _manager.Audio.PlayBlock();
+        }
+    }
+
+    private void HandleShieldTriggered(Actor actor)
+    {
+        _manager.Audio.PlayBlock();
+    }
+
+    private void HandleActorJumped(Actor actor)
+    {
+        _manager.Audio.PlayJump();
+    }
+
+    private void HandleActorStep(Actor actor, int footIndex)
+    {
+        // 左右脚交替微调音高（左脚 -0.03f，右脚 +0.05f），呈现极富节奏感的“啪嗒 啪嗒”脚步声
+        float pitch = (footIndex == 0) ? -0.03f : 0.05f;
+        float volume = (actor == _player) ? 0.65f : 0.42f;
+        _manager.Audio.PlayStep(volume, pitch);
+    }
+
+    private void HandlePhoenixRevived(Actor actor)
+    {
+        _manager.Audio.PlayPhoenix();
+    }
+
+    private void HandleDryFire(Actor actor)
+    {
+        if (actor == _player)
+        {
+            _manager.Audio.PlayDryFire();
+        }
+    }
+
+    private void HandlePoisonTick(Actor actor)
+    {
+        _manager.Audio.PlayPoisonSizzle(actor == _player ? 0.50f : 0.35f);
+    }
+
+    private void HandleTeleported(Actor actor)
+    {
+        _manager.Audio.PlayTeleport(actor == _player ? 0.85f : 0.65f);
+    }
+
+    private void InitPauseMenuLayout()
+    {
+        bool mobile = VirtualViewport.IsMobile;
+        int cx = VirtualViewport.VirtualWidth / 2;
+        int cy = VirtualViewport.VirtualHeight / 2;
+
+        int menuW = mobile ? 960 : 820;
+        int menuH = mobile ? 800 : 680;
+        _pauseBoxRect = new Rectangle(cx - menuW / 2, cy - menuH / 2, menuW, menuH);
+
+        int btnStepW = mobile ? 52 : 44;
+        int btnStepH = mobile ? 44 : 36;
+        int barW = mobile ? 300 : 250;
+        int barH = mobile ? 34 : 28;
+
+        int rowStartY = _pauseBoxRect.Y + (mobile ? 135 : 115);
+        int rowGap = mobile ? 58 : 48;
+
+        int ctrlRight = _pauseBoxRect.Right - (mobile ? 50 : 40);
+        int plusX = ctrlRight - btnStepW;
+        int barX = plusX - 10 - barW;
+        int minusX = barX - 10 - btnStepW;
+
+        // Row 0: Master
+        int r0Y = rowStartY + 0 * rowGap;
+        _btnMasterMinus = new Rectangle(minusX, r0Y - 4, btnStepW, btnStepH);
+        _barMasterVolume = new Rectangle(barX, r0Y, barW, barH);
+        _btnMasterPlus = new Rectangle(plusX, r0Y - 4, btnStepW, btnStepH);
+
+        // Row 1: BGM
+        int r1Y = rowStartY + 1 * rowGap;
+        _btnBgmMinus = new Rectangle(minusX, r1Y - 4, btnStepW, btnStepH);
+        _barBgmVolume = new Rectangle(barX, r1Y, barW, barH);
+        _btnBgmPlus = new Rectangle(plusX, r1Y - 4, btnStepW, btnStepH);
+
+        // Row 2: SFX
+        int r2Y = rowStartY + 2 * rowGap;
+        _btnSfxMinus = new Rectangle(minusX, r2Y - 4, btnStepW, btnStepH);
+        _barSfxVolume = new Rectangle(barX, r2Y, barW, barH);
+        _btnSfxPlus = new Rectangle(plusX, r2Y - 4, btnStepW, btnStepH);
+
+        // Row 3: BGM track & Prev / Next / Open List
+        int r3Y = rowStartY + 3 * rowGap;
+        int navBtnW = mobile ? 110 : 86;
+        int listBtnW = mobile ? 150 : 120;
+        int btnH = mobile ? 46 : 36;
+
+        _btnOpenMusicList = new Rectangle(ctrlRight - listBtnW, r3Y - 4, listBtnW, btnH);
+        _btnNextBgm = new Rectangle(_btnOpenMusicList.X - 10 - navBtnW, r3Y - 4, navBtnW, btnH);
+        _btnPrevBgm = new Rectangle(_btnNextBgm.X - 10 - navBtnW, r3Y - 4, navBtnW, btnH);
+
+        // Row 4: Play Mode
+        int r4Y = rowStartY + 4 * rowGap;
+        int modeBtnW = mobile ? 240 : 190;
+        _btnBgmMode = new Rectangle(ctrlRight - modeBtnW, r4Y - 4, modeBtnW, btnH);
+
+        // Row 5: AI Difficulty
+        int r5Y = rowStartY + 5 * rowGap;
+        int diffBtnW = mobile ? 270 : 210;
+        _btnPauseAiDiff = new Rectangle(ctrlRight - diffBtnW, r5Y - 4, diffBtnW, btnH);
+
+        // Action Buttons at bottom
+        int actionW = mobile ? 340 : 260;
+        int actionH = mobile ? 64 : 52;
+        int actionY = _pauseBoxRect.Bottom - (mobile ? 95 : 80);
+        int actionSpacing = mobile ? 36 : 24;
+
+        _btnResume = new Rectangle(cx - actionW - actionSpacing / 2, actionY, actionW, actionH);
+        _btnReturnToMenu = new Rectangle(cx + actionSpacing / 2, actionY, actionW, actionH);
+    }
+
+    private void UpdatePauseMenu()
+    {
+        Vector2 mousePos = _manager.Input.VirtualMousePosition;
+        bool click = _manager.Input.IsLeftClickJustPressed();
+
+        int hoveredBtn = -1;
+        if (_btnResume.Contains(mousePos)) hoveredBtn = 1;
+        else if (_btnReturnToMenu.Contains(mousePos)) hoveredBtn = 2;
+        else if (_btnMasterMinus.Contains(mousePos)) hoveredBtn = 3;
+        else if (_btnMasterPlus.Contains(mousePos)) hoveredBtn = 4;
+        else if (_btnBgmMinus.Contains(mousePos)) hoveredBtn = 5;
+        else if (_btnBgmPlus.Contains(mousePos)) hoveredBtn = 6;
+        else if (_btnSfxMinus.Contains(mousePos)) hoveredBtn = 7;
+        else if (_btnSfxPlus.Contains(mousePos)) hoveredBtn = 8;
+        else if (_btnPrevBgm.Contains(mousePos)) hoveredBtn = 9;
+        else if (_btnNextBgm.Contains(mousePos)) hoveredBtn = 10;
+        else if (_btnOpenMusicList.Contains(mousePos)) hoveredBtn = 11;
+        else if (_btnBgmMode.Contains(mousePos)) hoveredBtn = 12;
+        else if (_btnPauseAiDiff.Contains(mousePos)) hoveredBtn = 13;
+
+        if (hoveredBtn != -1 && hoveredBtn != _lastHoveredPauseBtn)
+        {
+            _manager.Audio.PlayUiHover();
+        }
+        _lastHoveredPauseBtn = hoveredBtn;
+
+        // 1. 继续游戏
+        if (_btnResume.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _isPaused = false;
+            return;
+        }
+
+        // 2. 返回主页面
+        if (_btnReturnToMenu.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.ChangeScene(new MainMenuScene(_manager, _exitAction));
+            return;
+        }
+
+        // 3. 主音量调节
+        if (_btnMasterMinus.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.MasterVolume = MathF.Round(MathF.Max(0f, _manager.Audio.MasterVolume - 0.1f), 2);
+        }
+        else if (_btnMasterPlus.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.MasterVolume = MathF.Round(MathF.Min(1f, _manager.Audio.MasterVolume + 0.1f), 2);
+        }
+        else if (_barMasterVolume.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            float t = MathHelper.Clamp((mousePos.X - _barMasterVolume.X) / _barMasterVolume.Width, 0f, 1f);
+            _manager.Audio.MasterVolume = MathF.Round(t, 2);
+        }
+
+        // 4. 背景音乐音量调节
+        if (_btnBgmMinus.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.BgmVolume = MathF.Round(MathF.Max(0f, _manager.Audio.BgmVolume - 0.1f), 2);
+        }
+        else if (_btnBgmPlus.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.BgmVolume = MathF.Round(MathF.Min(1f, _manager.Audio.BgmVolume + 0.1f), 2);
+        }
+        else if (_barBgmVolume.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            float t = MathHelper.Clamp((mousePos.X - _barBgmVolume.X) / _barBgmVolume.Width, 0f, 1f);
+            _manager.Audio.BgmVolume = MathF.Round(t, 2);
+        }
+
+        // 5. 战斗音效音量调节
+        if (_btnSfxMinus.Contains(mousePos) && click)
+        {
+            _manager.Audio.SfxVolume = MathF.Round(MathF.Max(0f, _manager.Audio.SfxVolume - 0.1f), 2);
+            _manager.Audio.PlayShoot();
+        }
+        else if (_btnSfxPlus.Contains(mousePos) && click)
+        {
+            _manager.Audio.SfxVolume = MathF.Round(MathF.Min(1f, _manager.Audio.SfxVolume + 0.1f), 2);
+            _manager.Audio.PlayShoot();
+        }
+        else if (_barSfxVolume.Contains(mousePos) && click)
+        {
+            float t = MathHelper.Clamp((mousePos.X - _barSfxVolume.X) / _barSfxVolume.Width, 0f, 1f);
+            _manager.Audio.SfxVolume = MathF.Round(t, 2);
+            _manager.Audio.PlayShoot();
+        }
+
+        // 6. 音乐切歌与选曲
+        if (_btnPrevBgm.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.PlayPrevBgm();
+        }
+        else if (_btnNextBgm.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.PlayNextBgm(userTriggered: true);
+        }
+        else if (_btnOpenMusicList.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _musicModal.Open();
+        }
+        else if (_btnBgmMode.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            _manager.Audio.CyclePlayMode();
+        }
+        else if (_btnPauseAiDiff.Contains(mousePos) && click)
+        {
+            _manager.Audio.PlayUiClick();
+            GameSettings.Current.AiDifficulty = (GameSettings.Current.AiDifficulty + 1) % 3;
+            GameSettings.Save();
+        }
+    }
+
+    private void DrawPauseMenu(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font)
+    {
+        // 1. 半透明全屏遮罩
+        batcher.DrawRectangle(spriteBatch, new Rectangle(0, 0, VirtualViewport.VirtualWidth, VirtualViewport.VirtualHeight), Color.Black * 0.75f);
+
+        bool mobile = VirtualViewport.IsMobile;
+        int cx = VirtualViewport.VirtualWidth / 2;
+        Vector2 mousePos = _manager.Input.VirtualMousePosition;
+
+        // 2. 主弹窗背景与发光轮廓
+        batcher.DrawRoundedRect(spriteBatch, _pauseBoxRect, 14f, ColorPalette.BackgroundCard);
+        batcher.DrawRectangleOutline(spriteBatch, _pauseBoxRect, ColorPalette.PlayerBlue, 3f);
+
+        // 3. 标题与提示
+        font.DrawText(spriteBatch, "游戏暂停 (PAUSED)", new Vector2(cx, _pauseBoxRect.Y + (mobile ? 45 : 36)), Color.White, mobile ? 1.6f : 1.35f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, "按 ESC 键或点击继续游戏以恢复对决", new Vector2(cx, _pauseBoxRect.Y + (mobile ? 88 : 72)), ColorPalette.TextGray, mobile ? 0.80f : 0.65f, new Vector2(0.5f, 0.5f));
+
+        // 分割线
+        int lineMargin = mobile ? 50 : 40;
+        int lineY = _pauseBoxRect.Y + (mobile ? 116 : 96);
+        batcher.DrawLine(spriteBatch, new Vector2(_pauseBoxRect.X + lineMargin, lineY), new Vector2(_pauseBoxRect.Right - lineMargin, lineY), ColorPalette.WallOutline, 1.5f);
+
+        // 4. 音量调节行绘制辅助
+        int labelX = _pauseBoxRect.X + (mobile ? 50 : 40);
+        float labelScale = mobile ? 0.90f : 0.75f;
+
+        // Row 0: 主音量
+        int r0CenterY = _barMasterVolume.Center.Y;
+        font.DrawText(spriteBatch, "全局主音量", new Vector2(labelX, r0CenterY), ColorPalette.TextWhite, labelScale, new Vector2(0f, 0.5f));
+        DrawVolumeSlider(batcher, spriteBatch, font, _btnMasterMinus, _barMasterVolume, _btnMasterPlus, _manager.Audio.MasterVolume, mousePos, ColorPalette.PlayerBlue);
+
+        // Row 1: 背景音乐
+        int r1CenterY = _barBgmVolume.Center.Y;
+        font.DrawText(spriteBatch, "背景音乐 (BGM)", new Vector2(labelX, r1CenterY), ColorPalette.TextWhite, labelScale, new Vector2(0f, 0.5f));
+        DrawVolumeSlider(batcher, spriteBatch, font, _btnBgmMinus, _barBgmVolume, _btnBgmPlus, _manager.Audio.BgmVolume, mousePos, ColorPalette.PlayerYellow);
+
+        // Row 2: 战斗音效
+        int r2CenterY = _barSfxVolume.Center.Y;
+        font.DrawText(spriteBatch, "战斗音效 (SFX)", new Vector2(labelX, r2CenterY), ColorPalette.TextWhite, labelScale, new Vector2(0f, 0.5f));
+        DrawVolumeSlider(batcher, spriteBatch, font, _btnSfxMinus, _barSfxVolume, _btnSfxPlus, _manager.Audio.SfxVolume, mousePos, ColorPalette.PlayerGreen);
+
+        // Row 3: 曲目展示与切歌
+        int r3CenterY = _btnNextBgm.Center.Y;
+        string bgmText = $"正在播放: {_manager.Audio.CurrentBgmTitle}";
+        font.DrawText(spriteBatch, bgmText, new Vector2(labelX, r3CenterY), ColorPalette.PlayerYellow, mobile ? 0.78f : 0.65f, new Vector2(0f, 0.5f));
+
+        DrawSmallButton(batcher, spriteBatch, font, _btnPrevBgm, "上一首", mousePos, ColorPalette.PlayerYellow);
+        DrawSmallButton(batcher, spriteBatch, font, _btnNextBgm, "下一首", mousePos, ColorPalette.PlayerYellow);
+        DrawSmallButton(batcher, spriteBatch, font, _btnOpenMusicList, "选曲列表", mousePos, ColorPalette.PlayerBlue);
+
+        // Row 4: 播放模式
+        int r4CenterY = _btnBgmMode.Center.Y;
+        font.DrawText(spriteBatch, $"播放模式: {_manager.Audio.GetPlayModeName()}", new Vector2(labelX, r4CenterY), ColorPalette.PlayerGreen, mobile ? 0.85f : 0.72f, new Vector2(0f, 0.5f));
+        DrawSmallButton(batcher, spriteBatch, font, _btnBgmMode, $"切换: {_manager.Audio.GetPlayModeName()}", mousePos, ColorPalette.PlayerGreen);
+
+        // Row 5: AI 对战难度
+        int r5CenterY = _btnPauseAiDiff.Center.Y;
+        int currentDiff = GameSettings.Current.AiDifficulty;
+        string diffName = currentDiff switch
+        {
+            0 => "简单 (新手练手 / 迟疑)",
+            1 => "普通 (战术特工 / 均衡)",
+            2 => "地狱 (绝壁预判 / 弹反)",
+            _ => "普通"
+        };
+        Color diffColor = currentDiff switch
+        {
+            0 => ColorPalette.PlayerGreen,
+            1 => ColorPalette.PlayerBlue,
+            _ => ColorPalette.PlayerRed
+        };
+        font.DrawText(spriteBatch, $"AI 对战难度: {diffName}", new Vector2(labelX, r5CenterY), diffColor, mobile ? 0.85f : 0.72f, new Vector2(0f, 0.5f));
+        DrawSmallButton(batcher, spriteBatch, font, _btnPauseAiDiff, $"切换难度: {diffName}", mousePos, diffColor);
+
+        // 5. 底部按钮: 继续游戏 & 返回主页面
+        DrawActionButton(batcher, spriteBatch, font, _btnResume, "继续游戏 (ESC)", mousePos, ColorPalette.PlayerGreen);
+        DrawActionButton(batcher, spriteBatch, font, _btnReturnToMenu, "返回主页面", mousePos, ColorPalette.PlayerRed * 0.85f);
+
+        // 6. 若曲库选取弹窗开启，置顶绘制
+        if (_musicModal.IsOpen)
+        {
+            _musicModal.Draw(batcher, spriteBatch, font, _manager.Input, _manager.Audio);
+        }
+    }
+
+    private static void DrawSmallButton(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font, Rectangle rect, string text, Vector2 mousePos, Color accent)
+    {
+        bool mobile = VirtualViewport.IsMobile;
+        bool hover = rect.Contains(mousePos);
+        batcher.DrawRoundedRect(spriteBatch, rect, 6f, hover ? ColorPalette.ButtonHover : Color.Black * 0.45f);
+        batcher.DrawRectangleOutline(spriteBatch, rect, hover ? Color.White : accent, hover ? 2.5f : 1.5f);
+        font.DrawText(spriteBatch, text, new Vector2(rect.Center.X, rect.Center.Y), hover ? Color.White : ColorPalette.TextWhite, mobile ? 0.82f : 0.68f, new Vector2(0.5f, 0.5f));
+    }
+
+    private void DrawVolumeSlider(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font, Rectangle btnMinus, Rectangle barRect, Rectangle btnPlus, float volume, Vector2 mousePos, Color accent)
+    {
+        bool mobile = VirtualViewport.IsMobile;
+        // Minus button
+        bool minusHover = btnMinus.Contains(mousePos);
+        batcher.DrawRoundedRect(spriteBatch, btnMinus, 6f, minusHover ? ColorPalette.ButtonHover : Color.Black * 0.4f);
+        batcher.DrawRectangleOutline(spriteBatch, btnMinus, minusHover ? Color.White : ColorPalette.WallOutline, minusHover ? 2.5f : 1.5f);
+        font.DrawText(spriteBatch, "-", new Vector2(btnMinus.Center.X, btnMinus.Center.Y), Color.White, mobile ? 1.2f : 0.95f, new Vector2(0.5f, 0.5f));
+
+        // Volume Bar
+        bool barHover = barRect.Contains(mousePos);
+        batcher.DrawRoundedRect(spriteBatch, barRect, 6f, Color.Black * 0.55f);
+        int fillW = (int)MathF.Round(barRect.Width * MathHelper.Clamp(volume, 0f, 1f));
+        if (fillW > 0)
+        {
+            Rectangle fillRect = new(barRect.X, barRect.Y, fillW, barRect.Height);
+            batcher.DrawRoundedRect(spriteBatch, fillRect, 6f, accent * 0.85f);
+        }
+        batcher.DrawRectangleOutline(spriteBatch, barRect, barHover ? Color.White : ColorPalette.WallOutline, barHover ? 2.5f : 1.5f);
+
+        // Percentage text inside bar
+        string pctText = $"{(int)MathF.Round(volume * 100f)}%";
+        font.DrawText(spriteBatch, pctText, new Vector2(barRect.Center.X, barRect.Center.Y), Color.White, mobile ? 0.80f : 0.65f, new Vector2(0.5f, 0.5f));
+
+        // Plus button
+        bool plusHover = btnPlus.Contains(mousePos);
+        batcher.DrawRoundedRect(spriteBatch, btnPlus, 6f, plusHover ? ColorPalette.ButtonHover : Color.Black * 0.4f);
+        batcher.DrawRectangleOutline(spriteBatch, btnPlus, plusHover ? Color.White : ColorPalette.WallOutline, plusHover ? 2.5f : 1.5f);
+        font.DrawText(spriteBatch, "+", new Vector2(btnPlus.Center.X, btnPlus.Center.Y), Color.White, mobile ? 1.2f : 0.95f, new Vector2(0.5f, 0.5f));
+    }
+
+    private void DrawActionButton(ShapeBatcher batcher, SpriteBatch spriteBatch, ProceduralFont font, Rectangle rect, string text, Vector2 mousePos, Color accent)
+    {
+        bool mobile = VirtualViewport.IsMobile;
+        bool hover = rect.Contains(mousePos);
+        Color bg = hover ? ColorPalette.ButtonHover : ColorPalette.BackgroundCard;
+        Color border = hover ? accent : ColorPalette.WallOutline;
+
+        batcher.DrawRoundedRect(spriteBatch, rect, mobile ? 12f : 8f, bg);
+        batcher.DrawRectangleOutline(spriteBatch, rect, border, hover ? 3.5f : 2f);
+
+        if (hover)
+        {
+            batcher.DrawRectangle(spriteBatch, new Rectangle(rect.X, rect.Y, 8, rect.Height), accent);
+        }
+
+        float textScale = mobile ? 1.15f : 0.85f;
+        font.DrawText(spriteBatch, text, new Vector2(rect.Center.X, rect.Center.Y), hover ? Color.White : ColorPalette.TextWhite, textScale, new Vector2(0.5f, 0.5f));
+    }
+
     /// <inheritdoc />
     public void Exit()
     {
         _player.OnRadiancePulse -= HandleRadiancePulse;
         _ai.OnRadiancePulse -= HandleRadiancePulse;
+        _player.OnReloadCompleted -= HandleReloadCompleted;
+        _ai.OnReloadCompleted -= HandleReloadCompleted;
+        _player.OnSubWeaponActivated -= HandleSubWeaponActivated;
+        _ai.OnSubWeaponActivated -= HandleSubWeaponActivated;
+        _player.OnShieldTriggered -= HandleShieldTriggered;
+        _ai.OnShieldTriggered -= HandleShieldTriggered;
+        _player.OnJumped -= HandleActorJumped;
+        _ai.OnJumped -= HandleActorJumped;
+        _player.OnStep -= HandleActorStep;
+        _ai.OnStep -= HandleActorStep;
+        _player.OnPhoenixRevived -= HandlePhoenixRevived;
+        _ai.OnPhoenixRevived -= HandlePhoenixRevived;
+        _player.OnDryFire -= HandleDryFire;
+        _ai.OnDryFire -= HandleDryFire;
+        _player.OnPoisonTick -= HandlePoisonTick;
+        _ai.OnPoisonTick -= HandlePoisonTick;
+        _player.OnTeleported -= HandleTeleported;
+        _ai.OnTeleported -= HandleTeleported;
+        _camera.ClearFocus();
+        _timeScale = 1.0f;
         _map.CleanPhysicsWorld(_world);
     }
 }

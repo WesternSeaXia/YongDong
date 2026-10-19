@@ -1,4 +1,3 @@
-
 #----------------------------- Global Properties ----------------------------#
 
 /outputDir:bin/$(Platform)
@@ -13,3 +12,104 @@
 
 #---------------------------------- Content ---------------------------------#
 
+#begin BGM/Beauty Flow.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Beauty Flow.mp3
+
+#begin BGM/Bleeping Demo.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Bleeping Demo.mp3
+
+#begin BGM/Captain Scurvy.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Captain Scurvy.mp3
+
+#begin BGM/Cloud Dancer.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Cloud Dancer.mp3
+
+#begin BGM/Club Diver.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Club Diver.mp3
+
+#begin BGM/Desert of Lost Souls.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Desert of Lost Souls.mp3
+
+#begin BGM/Ethernight Club.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Ethernight Club.mp3
+
+#begin BGM/Galactic Rap.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Galactic Rap.mp3
+
+#begin BGM/Getting it Done.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Getting it Done.mp3
+
+#begin BGM/Laser Groove.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Laser Groove.mp3
+
+#begin BGM/Laserpack.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Laserpack.mp3
+
+#begin BGM/Newer Wave.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Newer Wave.mp3
+
+#begin BGM/Pookatori and Friends.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Pookatori and Friends.mp3
+
+#begin BGM/Realizer.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Realizer.mp3
+
+#begin BGM/Shiny Tech2.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Shiny Tech2.mp3
+
+#begin BGM/Video Dungeon Boss.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Video Dungeon Boss.mp3
+
+#begin BGM/Voxel Revolution.mp3
+/importer:Mp3Importer
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:BGM/Voxel Revolution.mp3

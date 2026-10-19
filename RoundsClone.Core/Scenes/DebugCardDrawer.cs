@@ -9,6 +9,7 @@ using RoundsClone.Core.Common;
 using RoundsClone.Core.Entities;
 using RoundsClone.Core.Graphics;
 using RoundsClone.Core.Input;
+using RoundsClone.Core.SubWeapons;
 
 namespace RoundsClone.Core.Scenes;
 
@@ -50,10 +51,12 @@ public class DebugCardDrawer
         _damageInWindow += amount;
     }
 
+    private int _lastHoveredSlot = -1;
+
     /// <summary>
     /// 帧更新抽屉交互、快捷键监听与 DPS 解算。
     /// </summary>
-    public void Update(float dt, InputManager input, Actor player, Actor ai)
+    public void Update(float dt, InputManager input, Actor player, Actor ai, RoundsClone.Core.Audio.AudioManager? audio = null)
     {
         // 1. DPS 统计滑动窗口更新
         _dpsTimer += dt;
@@ -68,11 +71,13 @@ public class DebugCardDrawer
         if (input.IsKeyJustPressed(Keys.OemTilde) || input.IsKeyJustPressed(Keys.F1))
         {
             IsOpen = !IsOpen;
+            audio?.PlayUiClick();
         }
 
         if (input.IsKeyJustPressed(Keys.F3))
         {
             IsDummyMode = !IsDummyMode;
+            audio?.PlayUiClick();
             if (IsDummyMode)
             {
                 DummyTotalDamage = 0f;
@@ -85,11 +90,19 @@ public class DebugCardDrawer
         if (input.IsKeyJustPressed(Keys.F4))
         {
             InfiniteAmmo = !InfiniteAmmo;
+            audio?.PlayUiClick();
         }
 
         if (input.IsKeyJustPressed(Keys.H))
         {
             player.CurrentHealth = player.MaxHealth;
+            audio?.PlayUiClick();
+        }
+
+        if (input.IsKeyJustPressed(Keys.F5))
+        {
+            Actor activeTarget = IsTargetingPlayer ? player : ai;
+            ToggleSubWeapon(activeTarget, audio);
         }
 
         // 右上角浮动 [DEBUG] 按钮点击检测
@@ -97,6 +110,7 @@ public class DebugCardDrawer
         if (btnQuickToggle.Contains(input.VirtualMousePosition) && input.IsLeftClickJustPressed())
         {
             IsOpen = !IsOpen;
+            audio?.PlayUiClick();
         }
 
         if (!IsOpen) return;
@@ -109,18 +123,21 @@ public class DebugCardDrawer
         Actor currentTarget = IsTargetingPlayer ? player : ai;
 
         // 功能按键区域
-        Rectangle btnDummy = new(1335, 75, 170, 38);
-        Rectangle btnAmmo = new(1515, 75, 170, 38);
-        Rectangle btnHeal = new(1695, 75, 170, 38);
+        Rectangle btnDummy = new(1335, 68, 170, 34);
+        Rectangle btnAmmo = new(1515, 68, 170, 34);
+        Rectangle btnHeal = new(1695, 68, 170, 34);
 
-        Rectangle btnTargetP1 = new(1335, 122, 170, 34);
-        Rectangle btnTargetAi = new(1515, 122, 170, 34);
-        Rectangle btnClearAll = new(1695, 122, 170, 34);
+        Rectangle btnTargetP1 = new(1335, 108, 170, 32);
+        Rectangle btnTargetAi = new(1515, 108, 170, 32);
+        Rectangle btnClearAll = new(1695, 108, 170, 32);
+
+        Rectangle btnSubWeapon = new(1335, 146, 530, 34);
 
         if (leftClick)
         {
             if (btnDummy.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 IsDummyMode = !IsDummyMode;
                 if (IsDummyMode)
                 {
@@ -132,53 +149,69 @@ public class DebugCardDrawer
             }
             else if (btnAmmo.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 InfiniteAmmo = !InfiniteAmmo;
             }
             else if (btnHeal.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 player.CurrentHealth = player.MaxHealth;
             }
             else if (btnTargetP1.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 IsTargetingPlayer = true;
             }
             else if (btnTargetAi.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 IsTargetingPlayer = false;
             }
             else if (btnClearAll.Contains(mousePos))
             {
+                audio?.PlayUiClick();
                 currentTarget.RebuildFromCards(Array.Empty<ICardPlugin>());
+            }
+            else if (btnSubWeapon.Contains(mousePos))
+            {
+                ToggleSubWeapon(currentTarget, audio);
             }
         }
 
-        // 4. 卡牌网格点击交互（共 2 列）
+        // 4. 卡牌网格点击交互（紧凑 3 列布局，彻底解决与底部已装卡牌重叠问题）
         _hoveredCardIndex = -1;
         int gridStartX = 1335;
-        int gridStartY = 175;
-        int itemW = 262;
-        int itemH = 42;
-        int gapX = 14;
-        int gapY = 8;
+        int gridStartY = 188;
+        int itemW = 176;
+        int itemH = 34;
+        int gapX = 8;
+        int gapY = 6;
 
         for (int i = 0; i < _allCards.Count; i++)
         {
-            int col = i % 2;
-            int row = i / 2;
+            int col = i % 3;
+            int row = i / 3;
             Rectangle itemRect = new(gridStartX + col * (itemW + gapX), gridStartY + row * (itemH + gapY), itemW, itemH);
 
             if (itemRect.Contains(mousePos))
             {
                 _hoveredCardIndex = i;
+                if (_lastHoveredSlot != i)
+                {
+                    audio?.PlayUiHover();
+                    _lastHoveredSlot = i;
+                }
 
                 if (leftClick)
                 {
+                    audio?.PlayUiClick();
                     // 左键：给当前目标添加 1 张该卡牌
                     var newCards = new List<ICardPlugin>(currentTarget.AppliedCards) { _allCards[i] };
                     currentTarget.RebuildFromCards(newCards);
                 }
                 else if (rightClick)
                 {
+                    audio?.PlayUiClick();
                     // 右键：从当前目标卸载 1 张该卡牌
                     int removeIdx = currentTarget.AppliedCards.FindLastIndex(c => c.Id.Equals(_allCards[i].Id, StringComparison.OrdinalIgnoreCase));
                     if (removeIdx >= 0)
@@ -191,24 +224,27 @@ public class DebugCardDrawer
             }
         }
 
-        // 5. 底部已装卡牌列表点击移除
-        int equippedStartY = 750;
-        int pillX = 1335;
-        int pillY = equippedStartY + 30;
+        if (_hoveredCardIndex == -1) _lastHoveredSlot = -1;
 
-        for (int i = 0; i < currentTarget.AppliedCards.Count && i < 20; i++)
+        // 5. 底部已装卡牌列表点击移除（下移至 Y=548 之后，与上方 25 张卡牌货架完全分离）
+        int equippedStartY = 548;
+        int pillX = 1335;
+        int pillY = equippedStartY + 34;
+
+        for (int i = 0; i < currentTarget.AppliedCards.Count && i < 36; i++)
         {
-            Rectangle pillRect = new(pillX, pillY, 172, 30);
+            Rectangle pillRect = new(pillX, pillY, 176, 30);
             if (pillRect.Contains(mousePos) && leftClick)
             {
+                audio?.PlayUiClick();
                 var remaining = new List<ICardPlugin>(currentTarget.AppliedCards);
                 remaining.RemoveAt(i);
                 currentTarget.RebuildFromCards(remaining);
                 break;
             }
 
-            pillX += 178;
-            if (pillX + 172 > 1890)
+            pillX += 184;
+            if (pillX + 176 > 1890)
             {
                 pillX = 1335;
                 pillY += 34;
@@ -225,7 +261,7 @@ public class DebugCardDrawer
         Rectangle btnQuick = new(1810, 16, 95, 36);
         batcher.DrawRoundedRect(spriteBatch, btnQuick, 6f, IsOpen ? Color.Cyan * 0.85f : new Color(20, 24, 36) * 0.85f);
         batcher.DrawRectangleOutline(spriteBatch, btnQuick, Color.Cyan, 1.5f);
-        font.DrawText(spriteBatch, IsOpen ? "关闭 [~]" : "调试 [~]", new Vector2(btnQuick.Center.X, btnQuick.Center.Y), Color.White, 0.78f, new Vector2(0.5f, 0.5f));
+        font.DrawText(spriteBatch, IsOpen ? "收起 [~]" : "沙盒 [~]", new Vector2(btnQuick.Center.X, btnQuick.Center.Y), Color.White, 0.78f, new Vector2(0.5f, 0.5f));
 
         if (!IsOpen) return;
 
@@ -235,87 +271,94 @@ public class DebugCardDrawer
         batcher.DrawRectangleOutline(spriteBatch, panel, Color.Cyan * 0.8f, 2.0f);
 
         // 标题与快捷键提示
-        font.DrawText(spriteBatch, "卡牌实验室 (DEBUG)", new Vector2(panel.X + 20, 32), Color.Cyan, 1.15f);
+        font.DrawText(spriteBatch, "沙盒卡牌实验室", new Vector2(panel.X + 20, 32), Color.Cyan, 1.15f);
         font.DrawText(spriteBatch, "按 [~] 或 [F1] 隐藏", new Vector2(panel.Right - 20, 36), Color.Gray, 0.72f, new Vector2(1f, 0f));
 
         // 3. 快捷控制按钮组
-        Rectangle btnDummy = new(1335, 75, 170, 38);
-        Rectangle btnAmmo = new(1515, 75, 170, 38);
-        Rectangle btnHeal = new(1695, 75, 170, 38);
+        Rectangle btnDummy = new(1335, 68, 170, 34);
+        Rectangle btnAmmo = new(1515, 68, 170, 34);
+        Rectangle btnHeal = new(1695, 68, 170, 34);
 
         DrawButton(batcher, spriteBatch, font, btnDummy, IsDummyMode ? "靶桩模式: 开启" : "靶桩模式: 关闭", IsDummyMode ? Color.LightGreen : Color.Gray);
         DrawButton(batcher, spriteBatch, font, btnAmmo, InfiniteAmmo ? "无限备弹: 开启" : "无限备弹: 关闭", InfiniteAmmo ? Color.LightGreen : Color.Gray);
         DrawButton(batcher, spriteBatch, font, btnHeal, "生命回满 (H)", Color.Coral);
 
         // 目标切换
-        Rectangle btnTargetP1 = new(1335, 122, 170, 34);
-        Rectangle btnTargetAi = new(1515, 122, 170, 34);
-        Rectangle btnClearAll = new(1695, 122, 170, 34);
+        Rectangle btnTargetP1 = new(1335, 108, 170, 32);
+        Rectangle btnTargetAi = new(1515, 108, 170, 32);
+        Rectangle btnClearAll = new(1695, 108, 170, 32);
 
         DrawButton(batcher, spriteBatch, font, btnTargetP1, "目标: 玩家 P1", IsTargetingPlayer ? Color.Cyan : Color.DimGray);
         DrawButton(batcher, spriteBatch, font, btnTargetAi, "目标: AI对手", !IsTargetingPlayer ? Color.Coral : Color.DimGray);
         DrawButton(batcher, spriteBatch, font, btnClearAll, "清空卡牌", Color.IndianRed);
 
-        // 4. 卡牌超市货架网格
+        // 副武器切换
         Actor currentTarget = IsTargetingPlayer ? player : ai;
+        Rectangle btnSubWeapon = new(1335, 146, 530, 34);
+        string weaponName = currentTarget.SubWeapon?.Name ?? "无副武器";
+        string nextWeapon = currentTarget.SubWeapon is BlockSubWeapon ? "疾风冲刺" : "力场格挡";
+        Color weaponColor = currentTarget.SubWeapon is BlockSubWeapon ? ColorPalette.PlayerBlue : ColorPalette.DashTrail;
+        DrawButton(batcher, spriteBatch, font, btnSubWeapon, $"当前副武器: {weaponName}  [点此或按 F5 切换为 {nextWeapon}]", weaponColor);
+
+        // 4. 卡牌超市货架网格（3 列紧凑布局，9行共 354px，高度截止于 Y=522）
         int gridStartX = 1335;
-        int gridStartY = 175;
-        int itemW = 262;
-        int itemH = 42;
-        int gapX = 14;
-        int gapY = 8;
+        int gridStartY = 188;
+        int itemW = 176;
+        int itemH = 34;
+        int gapX = 8;
+        int gapY = 6;
 
         for (int i = 0; i < _allCards.Count; i++)
         {
             var card = _allCards[i];
-            int col = i % 2;
-            int row = i / 2;
+            int col = i % 3;
+            int row = i / 3;
             Rectangle itemRect = new(gridStartX + col * (itemW + gapX), gridStartY + row * (itemH + gapY), itemW, itemH);
 
             bool hovered = i == _hoveredCardIndex;
             Color tierCol = GetTierColor(card.Tier);
 
-            batcher.DrawRoundedRect(spriteBatch, itemRect, 6f, hovered ? ColorPalette.ButtonHover : new Color(24, 30, 44));
-            batcher.DrawRectangleOutline(spriteBatch, itemRect, hovered ? tierCol : Color.DarkSlateGray, hovered ? 2.0f : 1.0f);
+            batcher.DrawRoundedRect(spriteBatch, itemRect, 5f, hovered ? ColorPalette.ButtonHover : new Color(24, 30, 44));
+            batcher.DrawRectangleOutline(spriteBatch, itemRect, hovered ? tierCol : Color.DarkSlateGray, hovered ? 1.8f : 1.0f);
 
-            // 品质色条
-            batcher.DrawFilledCircle(spriteBatch, new Vector2(itemRect.X + 16, itemRect.Center.Y), 6f, tierCol);
+            // 品质色点
+            batcher.DrawFilledCircle(spriteBatch, new Vector2(itemRect.X + 13, itemRect.Center.Y), 5f, tierCol);
 
             // 卡牌名称
-            font.DrawText(spriteBatch, card.Name, new Vector2(itemRect.X + 32, itemRect.Center.Y), Color.White, 0.85f, new Vector2(0f, 0.5f));
+            font.DrawText(spriteBatch, card.Name, new Vector2(itemRect.X + 24, itemRect.Center.Y), Color.White, 0.78f, new Vector2(0f, 0.5f));
 
             // 已装数量徽标
             int count = currentTarget.AppliedCards.Count(c => c.Id.Equals(card.Id, StringComparison.OrdinalIgnoreCase));
             if (count > 0)
             {
-                font.DrawText(spriteBatch, $"x{count}", new Vector2(itemRect.Right - 12, itemRect.Center.Y), Color.Yellow, 0.82f, new Vector2(1f, 0.5f));
+                font.DrawText(spriteBatch, $"x{count}", new Vector2(itemRect.Right - 8, itemRect.Center.Y), Color.Yellow, 0.75f, new Vector2(1f, 0.5f));
             }
         }
 
-        // 5. 底部已装卡牌详情与单卡卸载栏
-        int equippedStartY = 750;
+        // 5. 底部已装卡牌详情与单卡卸载栏（起始 Y=548，与上方卡牌完全分离无重叠）
+        int equippedStartY = 548;
         batcher.DrawLine(spriteBatch, new Vector2(panel.X + 16, equippedStartY), new Vector2(panel.Right - 16, equippedStartY), Color.DarkSlateGray, 1.5f);
 
         string targetName = IsTargetingPlayer ? "玩家已生效卡牌" : "AI/靶桩已生效卡牌";
         font.DrawText(spriteBatch, $"{targetName} ({currentTarget.AppliedCards.Count} 张) - 点击 [X] 卸载:", new Vector2(panel.X + 20, equippedStartY + 8), Color.LightGray, 0.78f);
 
         int pillX = 1335;
-        int pillY = equippedStartY + 36;
+        int pillY = equippedStartY + 34;
 
-        for (int i = 0; i < currentTarget.AppliedCards.Count && i < 20; i++)
+        for (int i = 0; i < currentTarget.AppliedCards.Count && i < 36; i++)
         {
             var c = currentTarget.AppliedCards[i];
-            Rectangle pillRect = new(pillX, pillY, 172, 30);
+            Rectangle pillRect = new(pillX, pillY, 176, 30);
             Color tCol = GetTierColor(c.Tier);
 
             batcher.DrawRoundedRect(spriteBatch, pillRect, 4f, new Color(30, 36, 52));
             batcher.DrawRectangleOutline(spriteBatch, pillRect, tCol * 0.7f, 1.0f);
 
-            font.DrawText(spriteBatch, c.Name, new Vector2(pillRect.X + 10, pillRect.Center.Y), Color.White, 0.72f, new Vector2(0f, 0.5f));
-            font.DrawText(spriteBatch, "[X]", new Vector2(pillRect.Right - 12, pillRect.Center.Y), Color.IndianRed, 0.75f, new Vector2(0.5f, 0.5f));
+            font.DrawText(spriteBatch, c.Name, new Vector2(pillRect.X + 8, pillRect.Center.Y), Color.White, 0.72f, new Vector2(0f, 0.5f));
+            font.DrawText(spriteBatch, "[X]", new Vector2(pillRect.Right - 8, pillRect.Center.Y), Color.IndianRed, 0.75f, new Vector2(0.5f, 0.5f));
 
-            pillX += 178;
-            if (pillX + 172 > 1890)
+            pillX += 184;
+            if (pillX + 176 > 1890)
             {
                 pillX = 1335;
                 pillY += 34;
@@ -329,7 +372,7 @@ public class DebugCardDrawer
             int tipW = 390;
             int tipH = 220;
             int tipX = panel.X - tipW - 14;
-            int tipY = Math.Clamp(_allCards.Count > 0 ? (gridStartY + (_hoveredCardIndex / 2) * 50) : 300, 100, 800);
+            int tipY = Math.Clamp(_allCards.Count > 0 ? (gridStartY + (_hoveredCardIndex / 3) * 40) : 300, 80, 800);
 
             Rectangle tipRect = new(tipX, tipY, tipW, tipH);
             Color tierCol = GetTierColor(card.Tier);
@@ -403,4 +446,17 @@ public class DebugCardDrawer
         CardTier.Legendary => ColorPalette.TierLegendary,
         _ => Color.White
     };
+
+    private static void ToggleSubWeapon(Actor target, RoundsClone.Core.Audio.AudioManager? audio)
+    {
+        audio?.PlayUiClick();
+        if (target.SubWeapon is RoundsClone.Core.SubWeapons.BlockSubWeapon)
+        {
+            target.SubWeapon = new RoundsClone.Core.SubWeapons.DashSubWeapon();
+        }
+        else
+        {
+            target.SubWeapon = new RoundsClone.Core.SubWeapons.BlockSubWeapon();
+        }
+    }
 }

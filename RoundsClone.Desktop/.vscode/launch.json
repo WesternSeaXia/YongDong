@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
       {
-        "name": "C#: RoundsClone.Desktop Debug",
+        "name": "C#: 混乱枪豆人 Desktop Debug",
         "type": "dotnet",
         "request": "launch",
         "projectPath": "${workspaceFolder}/RoundsClone.Desktop.csproj"

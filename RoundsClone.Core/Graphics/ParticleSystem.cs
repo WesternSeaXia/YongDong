@@ -33,6 +33,7 @@ public class Particle
     public Color EndColor;
     public float StartSize;
     public float EndSize;
+    public float PeakSize = 0f; // 若 > 0，则先在前 22% 时间迅速膨胀至 PeakSize，之后平滑收敛消散至 EndSize
 
     public float Lifetime;
     public float MaxLifetime;
@@ -52,8 +53,10 @@ public class Particle
             if (Lifetime < 0f) return;
             dt = Lifetime;
         }
-
-        Lifetime += dt;
+        else
+        {
+            Lifetime += dt;
+        }
 
         if (AttractorPosition.HasValue)
         {
@@ -91,7 +94,27 @@ public class Particle
             _ => (1f - t) * (1f - t)
         };
         Color color = Color.Lerp(StartColor, EndColor, t) * alpha;
-        float size = MathHelper.Lerp(StartSize, EndSize, t);
+
+        float size;
+        if (PeakSize > 0f)
+        {
+            // ROUNDS 经典卡通圆形展开与收缩消散曲线：前 22% 时间以正弦曲线爆发膨胀至峰值，后 78% 平滑快速收敛消解
+            const float growRatio = 0.22f;
+            if (t < growRatio)
+            {
+                size = MathHelper.Lerp(StartSize, PeakSize, MathF.Sin((t / growRatio) * MathHelper.PiOver2));
+            }
+            else
+            {
+                float shrinkT = (t - growRatio) / (1f - growRatio);
+                size = MathHelper.Lerp(PeakSize, EndSize, shrinkT * shrinkT);
+            }
+        }
+        else
+        {
+            size = MathHelper.Lerp(StartSize, EndSize, t);
+        }
+
         if (size <= 0.1f) return;
 
         switch (Shape)
@@ -315,29 +338,16 @@ public class ParticleSystem
     }
 
     /// <summary>
-    /// 触发高辨识度、多层冲击波与碎片闪光的剧烈爆炸粒子特效。
+    /// 触发《ROUNDS》风格矢量爆炸特效：
+    /// 1. 效果范围与杀伤作用范围（radius）严格一致：由多朵类似毒云气团的小圆圈紧凑交叠，外沿刚好完整覆盖杀伤半径；
+    /// 2. 单个圆圈小巧精致适中，瞬时爆开并在 0.18 秒内迅速收缩湮灭，不持续停留；
+    /// 3. 火光消散后留存数朵小巧黑烟圈向上微浮消解；已完全去除外围流光。
     /// </summary>
-    public void EmitExplosion(Vector2 position, float radius, Color color, int shardCount = 36)
+    public void EmitExplosion(Vector2 position, float radius, Color color, int shardCount = 8)
     {
-        float effectRadius = MathF.Max(radius, 60f);
+        float effectRadius = MathF.Max(radius, 40f);
 
-        // 1. 核心高光致盲白闪球
-        AddParticle(new Particle
-        {
-            Position = position,
-            Velocity = Vector2.Zero,
-            Drag = 1f,
-            Gravity = 0f,
-            StartColor = Color.White,
-            EndColor = Color.Transparent,
-            StartSize = effectRadius * 0.9f,
-            EndSize = effectRadius * 1.6f,
-            Lifetime = 0f,
-            MaxLifetime = 0.14f,
-            Shape = ParticleShape.Circle
-        });
-
-        // 2. 双重扩张冲击波环（内层白光，外层主题霓虹光）
+        // 1. 爆心小巧瞬时高光白闪（0.06 秒）
         AddParticle(new Particle
         {
             Position = position,
@@ -345,51 +355,97 @@ public class ParticleSystem
             Drag = 1f,
             Gravity = 0f,
             StartColor = Color.White * 0.95f,
-            EndColor = color * 0f,
-            StartSize = 12f,
-            EndSize = effectRadius * 2.4f,
+            EndColor = Color.Transparent,
+            StartSize = effectRadius * 0.25f,
+            EndSize = effectRadius * 0.65f,
             Lifetime = 0f,
-            MaxLifetime = 0.26f,
-            Shape = ParticleShape.Ring
+            MaxLifetime = 0.06f,
+            Shape = ParticleShape.Circle
         });
 
+        // 2. 效果范围内：由多朵类似毒云的紧凑小气团交叠覆盖杀伤范围
+        // 单个圈小巧（半径约 0.32R~0.38R），外沿(分布距 0.65R + 半径 0.35R)刚好达到 1.0R，与伤害判定范围完全一致！
+        // 2.1 爆心小巧主核气团
         AddParticle(new Particle
         {
             Position = position,
             Velocity = Vector2.Zero,
             Drag = 1f,
             Gravity = 0f,
-            StartColor = color * 0.9f,
-            EndColor = ColorPalette.ExplosiveOrange * 0f,
-            StartSize = 18f,
-            EndSize = effectRadius * 2.8f,
+            StartColor = new Color(255, 235, 60),
+            EndColor = new Color(255, 120, 20, 0),
+            StartSize = 8f,
+            PeakSize = effectRadius * 0.75f, // 直径 0.75R，半径仅 0.375R
+            EndSize = 0f,
             Lifetime = 0f,
-            MaxLifetime = 0.35f,
-            Shape = ParticleShape.Ring
+            MaxLifetime = 0.18f,
+            AlphaPower = 1.4f,
+            Shape = ParticleShape.Circle
         });
 
-        // 3. 密集高速火花射线与燃烧碎屑
-        for (int i = 0; i < shardCount; i++)
+        // 2.2 围绕爆心分布的 6~8 朵小巧橙黄气团组合（类似毒云花瓣，交叠出 Q 弹爆炸质感并铺满杀伤范围）
+        int puffCount = _rand.Next(6, 9);
+        for (int i = 0; i < puffCount; i++)
         {
-            float angle = (float)(_rand.NextDouble() * MathHelper.TwoPi);
-            float speed = (float)(_rand.NextDouble() * (effectRadius * 6.5f) + 120f);
-            Vector2 vel = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * speed;
+            float puffAngle = (float)(_rand.NextDouble() * MathHelper.TwoPi);
+            // 距离：0.35R ~ 0.65R，搭配 0.35R 的半径，整体外沿恰好触及 1.0R
+            float puffDist = effectRadius * (0.35f + (float)_rand.NextDouble() * 0.30f);
+            Vector2 puffPos = position + new Vector2(MathF.Cos(puffAngle), MathF.Sin(puffAngle)) * puffDist;
 
-            Color sparkColor = (i % 3 == 0) ? Color.White : (i % 2 == 0 ? color : ColorPalette.ExplosiveOrange);
+            float puffDiameter = effectRadius * (0.62f + (float)_rand.NextDouble() * 0.16f); // 直径约 0.7R (半径 0.35R)
+
+            double roll = _rand.NextDouble();
+            Color puffColor = (roll < 0.40) ? new Color(255, 230, 50)   // 亮金黄
+                            : (roll < 0.75) ? new Color(255, 125, 20)   // 鲜艳爆炸橙
+                                            : new Color(255, 75, 12);   // 深焰红橙
 
             AddParticle(new Particle
             {
-                Position = position,
-                Velocity = vel,
-                Drag = 0.89f,
-                Gravity = 280f,
-                StartColor = sparkColor,
-                EndColor = Color.Transparent,
-                StartSize = (float)(_rand.NextDouble() * 7 + 4),
-                EndSize = 0.5f,
-                Lifetime = 0f,
-                MaxLifetime = (float)(_rand.NextDouble() * 0.42 + 0.22),
-                Shape = (i % 4 == 0) ? ParticleShape.Circle : (i % 3 == 0 ? ParticleShape.Square : ParticleShape.LineSpark)
+                Position = puffPos,
+                Velocity = Vector2.Zero,
+                Drag = 1f,
+                Gravity = 0f,
+                StartColor = puffColor,
+                EndColor = puffColor * 0f,
+                StartSize = 6f,
+                PeakSize = puffDiameter,
+                EndSize = 0f,
+                Lifetime = -(float)(_rand.NextDouble() * 0.02), // 细微错位膨胀
+                MaxLifetime = (float)(_rand.NextDouble() * 0.04 + 0.16), // 0.16s ~ 0.20s 快速收缩消解，不持续留存
+                AlphaPower = 1.4f,
+                Shape = ParticleShape.Circle
+            });
+        }
+
+        // 3. 炸完之后的精巧黑烟雾（2~3 朵小巧黑圈，向上微浮并缩小消散）
+        int smokeCount = _rand.Next(2, 4);
+        for (int i = 0; i < smokeCount; i++)
+        {
+            float smokeAngle = (float)(_rand.NextDouble() * MathHelper.TwoPi);
+            float smokeDist = effectRadius * (float)(_rand.NextDouble() * 0.35);
+            Vector2 smokePos = position + new Vector2(MathF.Cos(smokeAngle), MathF.Sin(smokeAngle)) * smokeDist;
+
+            float vx = (float)(_rand.NextDouble() - 0.5) * 16f;
+            float vy = -(float)(_rand.NextDouble() * 22f + 10f);
+            Vector2 smokeVel = new Vector2(vx, vy);
+
+            float smokeDiameter = effectRadius * (0.45f + (float)_rand.NextDouble() * 0.20f);
+
+            AddParticle(new Particle
+            {
+                Position = smokePos,
+                Velocity = smokeVel,
+                Drag = 0.94f,
+                Gravity = -16f,
+                StartColor = new Color(20, 20, 24, 230), // 深炭黑
+                EndColor = new Color(15, 15, 18, 0),
+                StartSize = 8f,
+                PeakSize = smokeDiameter,
+                EndSize = 2f,
+                Lifetime = -(float)(_rand.NextDouble() * 0.04 + 0.06), // 延时在火光收缩时浮现
+                MaxLifetime = (float)(_rand.NextDouble() * 0.18 + 0.42),
+                AlphaPower = 1.2f,
+                Shape = ParticleShape.Circle
             });
         }
     }

@@ -149,7 +149,33 @@ public class Actor
     public float SpeedBoostTimer { get; set; } = 0f;
     public float SpeedBoostFactor { get; set; } = 1.0f;
     public float RadianceTimer { get; set; } = 0f;
+    public float ActiveTimer { get; private set; } = 0f;
     public event Action<Actor>? OnRadiancePulse;
+    public event Action<Actor>? OnReloadCompleted;
+    public event Action<Actor, ISubWeapon>? OnSubWeaponActivated;
+    public event Action<Actor>? OnShieldTriggered;
+    public event Action<Actor>? OnJumped;
+    public event Action<Actor, int>? OnStep;
+    public event Action<Actor>? OnPhoenixRevived;
+    public event Action<Actor>? OnDryFire;
+    public event Action<Actor>? OnPoisonTick;
+    public event Action<Actor>? OnTeleported;
+
+    private readonly BlockSubWeapon _passiveShield = new();
+
+    /// <summary>
+    /// 被动技能（如终极之盾）激发的紧急力场护盾。
+    /// </summary>
+    public BlockSubWeapon PassiveShield => _passiveShield;
+
+    /// <summary>
+    /// 角色当前是否有任何活跃的偏转护盾（主动力场格挡或终极之盾激发）。
+    /// </summary>
+    public bool HasActiveShield => (SubWeapon is BlockSubWeapon b && b.IsActive) || _passiveShield.IsActive;
+
+    private float _stepTimer = 0f;
+    private int _stepIndex = 0;
+    private float _dryFireCooldown = 0f;
 
     /// <summary>
     /// 为角色施加移动加速增益（在持续时间内提升移动推力）。
@@ -166,12 +192,12 @@ public class Actor
     /// <summary>
     /// 为角色施加移动减速负面状态，并在身体上随机生成晶莹的多面双锥棱柱冰晶。
     /// </summary>
-    public void ApplySlow(float duration, float factor = 0.5f)
+    public void ApplySlow(float duration, float factor = 0.5f, bool isFrost = true)
     {
         SlowTimer = MathF.Max(SlowTimer, duration);
         SlowFactor = MathF.Min(SlowFactor, factor);
 
-        if (_frostCrystals.Count == 0)
+        if (isFrost && _frostCrystals.Count == 0)
         {
             GenerateRandomFrostCrystals();
         }
@@ -181,16 +207,16 @@ public class Actor
     {
         _frostCrystals.Clear();
         var rand = Random.Shared;
-        int count = rand.Next(5, 8); // 随机 5 ~ 7 枚附着在身上的双锥棱柱冰晶
+        int count = rand.Next(7, 11); // 随机 7 ~ 10 枚附着在身周与表面的细小冰渣
         for (int i = 0; i < count; i++)
         {
-            float r = MathF.Sqrt((float)rand.NextDouble()) * (Radius * 0.85f);
+            float r = Radius * (0.45f + (float)rand.NextDouble() * 0.55f);
             float theta = (float)(rand.NextDouble() * MathHelper.TwoPi);
             Vector2 offset = new(MathF.Cos(theta) * r, MathF.Sin(theta) * r);
             float angle = (float)(rand.NextDouble() * MathHelper.TwoPi);
-            float prismLen = (float)(rand.NextDouble() * 5.0 + 10.0); // 10.0px ~ 15.0px 棱柱长度
-            float prismW = (float)(rand.NextDouble() * 3.5 + 8.0);    // 8.0px ~ 11.5px 棱柱宽度（加粗）
-            float pyrH = (float)(rand.NextDouble() * 2.5 + 5.5);      // 5.5px ~ 8.0px 上下多棱锥尖端高
+            float prismLen = (float)(rand.NextDouble() * 2.5 + 4.5); // 4.5px ~ 7.0px 细小冰渣长度
+            float prismW = (float)(rand.NextDouble() * 1.0 + 1.8);   // 1.8px ~ 2.8px 细小冰渣宽度
+            float pyrH = (float)(rand.NextDouble() * 0.8 + 1.5);     // 1.5px ~ 2.3px 冰渣微尖端高
             _frostCrystals.Add(new FrostCrystalData(offset, angle, prismLen, prismW, pyrH));
         }
     }
@@ -269,6 +295,8 @@ public class Actor
     {
         if (IsDead) return;
 
+        ActiveTimer += dt;
+
         // 1. 更新受击闪烁与持续毒素状态
         UpdateStatusEffects(dt, particles, shake);
 
@@ -317,14 +345,58 @@ public class Actor
             }
         }
 
+        // 2.5. 更新地面行走脚步声节奏触发（支持斜坡下行不脱节）
+        bool isSlopeWalking = false;
+        if (!Body.IsGrounded && world != null && Body.Velocity.Y >= -20f && !input.IsJumpDown)
+        {
+            var downHit = world.Raycast(Body.Position, Vector2.UnitY, Radius + 14f, Collider);
+            if (downHit.HasHit && downHit.Normal.Y < -0.3f)
+            {
+                isSlopeWalking = true;
+                // 下坡微吸附，保持斜坡平滑贴地感
+                if (downHit.Distance > Radius && downHit.Distance <= Radius + 10f && Body.Velocity.Y >= 0f)
+                {
+                    Body.Position = new Vector2(Body.Position.X, downHit.Point.Y - Radius);
+                    Body.Velocity = new Vector2(Body.Velocity.X, MathF.Max(0f, Body.Velocity.Y * 0.2f));
+                    Body.IsGrounded = true;
+                    Body.GroundNormal = downHit.Normal;
+                    _groundCoyoteTimer = 0.10f;
+                }
+            }
+        }
+
+        bool isGroundedOrSlope = (Body.IsGrounded || isSlopeWalking || (_groundCoyoteTimer > 0f && Body.Velocity.Y >= -10f && !input.IsJumpDown)) && !IsDead;
+
+        if (isGroundedOrSlope && (MathF.Abs(Body.Velocity.X) > 35f || MathF.Abs(input.MoveVector.X) > 0.05f))
+        {
+            float speed = MathF.Max(MathF.Abs(Body.Velocity.X), MathF.Abs(input.MoveVector.X) * 220f);
+            float stepInterval = MathHelper.Clamp(62f / MathF.Max(speed, 100f), 0.18f, 0.36f);
+            _stepTimer += dt;
+            if (_stepTimer >= stepInterval)
+            {
+                _stepTimer = 0f;
+                int foot = _stepIndex++ % 2;
+                OnStep?.Invoke(this, foot);
+            }
+        }
+        else
+        {
+            // 离开地面或停步时保留一定步频记忆，杜绝下坡微颠簸单帧抹除步频
+            if (_stepTimer > 0.10f)
+            {
+                _stepTimer -= dt * 0.5f;
+            }
+        }
+
         // 3. 更新跳跃缓冲、土狼时间、贴墙滑行与坠落缓冲/撞击伤害
         UpdateJumpAndWallSlide(dt, input, world, particles, shake);
 
         // 4. 更新主武器射击与弹匣换弹
         UpdateWeaponAndReload(dt, input, world, particles, shake, onSpawnProjectile);
 
-        // 5. 更新副武器
+        // 5. 更新副武器与被动护盾
         UpdateSubWeapon(dt, input, world, particles, shake);
+        _passiveShield.Update(dt);
 
         // 6. 更新果冻形变与竹节四肢角弹簧动画器
         Squash.Update(dt);
@@ -348,14 +420,6 @@ public class Actor
                 SlowFactor = 1.0f;
                 _frostCrystals.Clear();
             }
-            if (Random.Shared.NextDouble() < 0.28)
-            {
-                Vector2 sparkPos = Body.Position + new Vector2(
-                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.4f,
-                    (float)(Random.Shared.NextDouble() - 0.5) * Radius * 1.4f
-                );
-                particles.EmitHitSparks(sparkPos, -Vector2.UnitY, ColorPalette.FreezeCyan, 2);
-            }
         }
         else if (_frostCrystals.Count > 0)
         {
@@ -367,6 +431,7 @@ public class Actor
             PoisonTimer -= dt;
             float dmg = PoisonDps > 0f ? (PoisonDps * dt) : (12f * dt);
             TakeDamage(dmg, PoisonSource, Vector2.Zero, particles, shake);
+            OnPoisonTick?.Invoke(this);
             if (Random.Shared.NextDouble() < 0.25)
             {
                 particles.EmitHitSparks(Body.Position, Vector2.UnitY, ColorPalette.PoisonGreen, 2);
@@ -461,6 +526,7 @@ public class Actor
                 Squash.ApplyStretch(Vector2.UnitY, 0.30f);
                 LimbAnimator.OnGroundJump(aimSign, 1.0f);
                 particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 7);
+                OnJumped?.Invoke(this);
             }
             else if (_wallCoyoteTimer > 0f && _lastWallNormal != Vector2.Zero)
             {
@@ -481,6 +547,7 @@ public class Actor
 
                 Vector2 wallContactPos = Body.Position - _lastWallNormal * Radius;
                 particles.EmitHitSparks(wallContactPos, _lastWallNormal, ThemeColor, 10);
+                OnJumped?.Invoke(this);
             }
             else if (RemainingJumps > 0)
             {
@@ -508,6 +575,7 @@ public class Actor
                 Squash.ApplyStretch(Vector2.UnitY, 0.35f);
                 LimbAnimator.OnAirJump(aimSign);
                 particles.EmitAirJump(Body.Position + new Vector2(0, Radius * 0.65f), ThemeColor);
+                OnJumped?.Invoke(this);
             }
         }
         else if (input.IsJumpDown && Body.IsGrounded)
@@ -523,6 +591,7 @@ public class Actor
             Squash.ApplyStretch(Vector2.UnitY, 0.30f);
             LimbAnimator.OnGroundJump(aimSign, 0.94f);
             particles.EmitJumpDust(Body.Position + new Vector2(0, Radius), ThemeColor, 6);
+            OnJumped?.Invoke(this);
         }
 
         // 落地冲击判定与斜坡着陆吸附：区分高处极速坠落压弯受到撞击伤害 vs 普通落地缓冲
@@ -541,11 +610,8 @@ public class Actor
             {
                 if (_prevFallVelocity > 1600f && !Body.IsOnBouncySurface)
                 {
-                    // 仅在超高空极速坠落或向下强力下砸时，且非高弹蹦床时，才触发身体重压受挫伤害与深蹲压弯
+                    // 超高空极速坠落或向下强力下砸时，触发身体深蹲受挫视觉压弯动画与扬尘（无掉落扣血伤害）
                     float excessSpeed = _prevFallVelocity - 1600f;
-                    float fallDamage = MathF.Min(excessSpeed * 0.016f, 25f);
-                    TakeDamage(fallDamage, null, Vector2.UnitY * 20f, particles, shake);
-
                     float buckleIntensity = MathHelper.Clamp(excessSpeed / 600f, 0.40f, 1.10f);
                     Squash.ApplySquash(Vector2.UnitY, MathHelper.Clamp(buckleIntensity * 0.40f, 0.25f, 0.55f));
                     LimbAnimator.OnHeavyFallImpact(buckleIntensity, aimSign);
@@ -573,9 +639,16 @@ public class Actor
         Action<Projectile> onSpawnProjectile)
     {
         if (CurrentFireCooldown > 0f) CurrentFireCooldown -= dt;
+        if (_dryFireCooldown > 0f) _dryFireCooldown -= dt;
 
         if (IsReloading)
         {
+            if (input.IsFireDown && _dryFireCooldown <= 0f)
+            {
+                _dryFireCooldown = 0.22f;
+                OnDryFire?.Invoke(this);
+            }
+
             ReloadTimer -= dt;
 
             // 换弹日冕 (Radiance)：换弹期间持续向四周脉冲辐射太阳能量波
@@ -589,7 +662,6 @@ public class Actor
                     if (RadianceTimer >= 0.28f)
                     {
                         RadianceTimer = 0f;
-                        particles.EmitExplosion(Body.Position, 75f, Color.Gold, 12);
                         OnRadiancePulse?.Invoke(this);
                     }
                 }
@@ -604,6 +676,7 @@ public class Actor
                 LimbAnimator.OnReloadComplete(aimSign);
                 Squash.ApplySquash(Vector2.UnitY, 0.15f);
                 particles.EmitHitSparks(Body.Position + _currentAim * (Radius + 14f), _currentAim, Color.White, 5);
+                OnReloadCompleted?.Invoke(this);
             }
         }
         else if (input.IsFireDown && CurrentFireCooldown <= 0f && CurrentAmmo > 0)
@@ -617,13 +690,41 @@ public class Actor
         if (SubWeapon == null) return;
 
         SubWeapon.Update(dt);
-        if (input.IsSecondaryDown && SubWeapon.TryActivate(this, _currentAim))
+
+        Vector2 subWeaponDir = _currentAim;
+        if (VirtualViewport.IsMobile)
         {
+            // 手机触屏端：副武器冲刺优先使用玩家当前摇杆所指引的方向
+            // 1. 若移动摇杆正在推向某方向（且未处于开火瞄准状态），冲刺严格沿移动摇杆指引方向冲刺
+            // 2. 若玩家正在瞄准，冲刺沿瞄准指向冲刺
+            // 3. 若摇杆归中静止，则沿角色当前面朝朝向冲刺
+            if (input.MoveVector.LengthSquared() > 0.04f && !input.IsFireDown)
+            {
+                subWeaponDir = MathHelper2D.SafeNormalize(input.MoveVector);
+            }
+            else if (input.AimVector.LengthSquared() > 0.04f)
+            {
+                subWeaponDir = MathHelper2D.SafeNormalize(input.AimVector);
+            }
+            else if (_currentAim.LengthSquared() > 0.04f)
+            {
+                subWeaponDir = MathHelper2D.SafeNormalize(_currentAim);
+            }
+            else
+            {
+                float facingX = _currentAim.X >= 0f ? 1f : -1f;
+                subWeaponDir = new Vector2(facingX, 0f);
+            }
+        }
+
+        if (input.IsSecondaryDown && SubWeapon.TryActivate(this, subWeaponDir))
+        {
+            OnSubWeaponActivated?.Invoke(this, SubWeapon);
             // 瞬移折跃机制 (Teleport)：在释放冲刺/副武器时，沿瞄准准星发射射线检测墙体距离，并在障碍物前安全贴边停步
             if (HasTeleport && world != null)
             {
                 const float maxTeleportDist = 280f;
-                Vector2 aimDir = _currentAim.LengthSquared() > 0.01f ? MathHelper2D.SafeNormalize(_currentAim) : Vector2.UnitX;
+                Vector2 aimDir = subWeaponDir.LengthSquared() > 0.01f ? MathHelper2D.SafeNormalize(subWeaponDir) : Vector2.UnitX;
                 var hit = world.Raycast(Body.Position, aimDir, maxTeleportDist, Collider);
                 float actualDist = maxTeleportDist;
                 if (hit.HasHit)
@@ -638,6 +739,7 @@ public class Actor
                 particles.EmitHitSparks(oldPos, -aimDir, ThemeColor, 12);
                 particles.EmitHitSparks(Body.Position, aimDir, Color.Cyan, 18);
                 shake.AddTrauma(0.25f);
+                OnTeleported?.Invoke(this);
             }
 
             foreach (var card in AppliedCards)
@@ -724,7 +826,7 @@ public class Actor
                 IsSneakyBullet = HasSneakyBullet,
                 HasTargetBounce = HasTargetBounce,
                 SpawnsToxicCloud = HasToxicCloud,
-                CanScavengeAmmo = !isLastBullet
+                CanScavengeAmmo = true
             };
 
             if (BulletSizeMultiplier != 1.0f)
@@ -742,18 +844,22 @@ public class Actor
             onSpawnProjectile(proj);
         }
 
-        // 最后一击之盾 (Shields Up)：射出弹匣最后一发时自动激发力场护盾/格挡防御
+        // 终极之盾 (Shields Up)：射出弹匣最后一发时自动激发力场护盾/格挡防御并触发金属“叮~”护盾音效
         if (HasShieldsUp && CurrentAmmo == 0)
         {
+            InvulnerabilityTimer = MathF.Max(InvulnerabilityTimer, 0.45f);
+            particles.EmitHitSparks(Body.Position, Vector2.UnitY, ColorPalette.PlayerBlue, 15);
+
             if (SubWeapon is BlockSubWeapon block)
             {
                 block.ForceActivate(this);
             }
             else
             {
-                InvulnerabilityTimer = MathF.Max(InvulnerabilityTimer, 0.45f);
-                particles.EmitHitSparks(Body.Position, Vector2.UnitY, ColorPalette.PlayerBlue, 15);
+                _passiveShield.ForceActivate(this);
             }
+
+            OnShieldTriggered?.Invoke(this);
         }
     }
 
@@ -779,6 +885,7 @@ public class Actor
             particles.EmitExplosion(Body.Position, 95f, Color.Gold, 28);
             particles.EmitHitSparks(Body.Position, -Vector2.UnitY, ColorPalette.ExplosiveOrange, 20);
             shake.AddTrauma(0.55f);
+            OnPhoenixRevived?.Invoke(this);
             return;
         }
 
@@ -855,6 +962,7 @@ public class Actor
         LimbAnimator.Reset();
         RecalculateHealthScaling();
         if (SubWeapon != null) SubWeapon.CurrentCooldown = 0f;
+        _passiveShield.CurrentCooldown = 0f;
     }
 
     /// <summary>
@@ -909,7 +1017,7 @@ public class Actor
         else if (SubWeapon is DashSubWeapon dash)
         {
             dash.Cooldown = 1.6f;
-            dash.DashSpeed = 1450f;
+            dash.DashDistance = 200f;
         }
 
         AppliedCards.Clear();

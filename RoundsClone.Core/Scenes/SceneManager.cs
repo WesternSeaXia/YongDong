@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using RoundsClone.Core.Audio;
 using RoundsClone.Core.Cards;
 using RoundsClone.Core.Common;
 using RoundsClone.Core.Entities;
@@ -14,7 +15,7 @@ namespace RoundsClone.Core.Scenes;
 
 /// <summary>
 /// 全局场景状态机与战局上下文管理器。
-/// 职责边界：持有跨场景共享的全局渲染器、输入与特效实例，维护整场对决的比分与双方卡组上下文，并调度 <see cref="IScene"/> 场景生命周期切换。
+/// 职责边界：持有跨场景共享的全局渲染器、输入、音效与特效实例，维护整场对决的比分与双方卡组上下文，并调度 <see cref="IScene"/> 场景生命周期切换。
 /// </summary>
 public class SceneManager
 {
@@ -24,6 +25,7 @@ public class SceneManager
     public InputManager Input { get; }
     public ParticleSystem Particles { get; } = new();
     public ScreenShake Shake { get; } = new();
+    public AudioManager Audio { get; } = new();
 
     private IScene? _currentScene;
 
@@ -46,6 +48,7 @@ public class SceneManager
 
     public MapData? CurrentMap { get; set; }
     public bool LastRoundPlayerWon { get; set; } = false;
+    public bool IsSandboxMode { get; set; } = false;
 
     public SceneManager(VirtualViewport viewport, ShapeBatcher shapeBatcher, ProceduralFont font, InputManager input)
     {
@@ -75,6 +78,7 @@ public class SceneManager
         PlayerCards.Clear();
         AiCards.Clear();
         CurrentMap = null;
+        IsSandboxMode = false;
     }
 
     /// <summary>
@@ -82,6 +86,7 @@ public class SceneManager
     /// </summary>
     public void Update(float dt)
     {
+        Audio.Update(dt);
         Particles.Update(dt);
         Shake.Update(dt);
         _currentScene?.Update(dt);

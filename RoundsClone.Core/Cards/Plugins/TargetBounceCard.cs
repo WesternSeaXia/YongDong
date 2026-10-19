@@ -6,13 +6,13 @@ namespace RoundsClone.Core.Cards;
 
 /// <summary>
 /// 目标折射技能卡插件 (Target Bounce)。
-/// 职责边界：子弹在撞击墙面或地形时仅重定向锁定敌人 1 次，随后回归常规物理反射；付出弹匣容量减 1 的代价。
+/// 职责边界：子弹在撞击墙面或地形时持续精准重定向追踪敌人；付出弹匣容量减 1 的代价。
 /// </summary>
 public class TargetBounceCard : ICardPlugin
 {
     public string Id => "card_target_bounce";
     public string Name => "目标折射";
-    public string Description => "撞墙精准追踪折射 1次\n反弹次数 +1\n最大弹匣 -1";
+    public string Description => "撞墙精准追踪折射敌人\n反弹次数 +1\n最大弹匣 -1";
     public CardTier Tier => CardTier.Epic;
     public IconType Icon => IconType.Bounce;
 

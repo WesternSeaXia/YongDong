@@ -17,19 +17,29 @@ public class DashSubWeapon : ISubWeapon
 {
     public string Id => "sub_dash";
     public string Name => "疾风冲刺";
-    public string Description => "瞬间向瞄准或移动方向爆发冲刺，期间完全免疫子弹伤害，附带连续残影。";
+    public string Description => "瞬间向指引/瞄准方向爆发冲刺 200px，期间完全免疫子弹伤害，附带连续残影。";
     public IconType Icon => IconType.Dash;
 
     public float Cooldown { get; set; } = 1.6f;
     public float CurrentCooldown { get; set; } = 0f;
     public bool IsReady => CurrentCooldown <= 0f;
-    public float ActiveDuration => 0.22f;
+    public float ActiveDuration => 0.15f;
     public bool IsActive => _activeTimer > 0f;
 
     /// <summary>
     /// 爆发瞬时速度 (像素/秒)。
+    /// 默认对应 200px / 0.15s ≈ 1333.3px/s。
     /// </summary>
-    public float DashSpeed { get; set; } = 1450f;
+    public float DashSpeed { get; set; } = 200f / 0.15f;
+
+    /// <summary>
+    /// 冲刺目标位移距离 (默认 200 像素)。
+    /// </summary>
+    public float DashDistance
+    {
+        get => DashSpeed * ActiveDuration;
+        set => DashSpeed = value / ActiveDuration;
+    }
 
     private float _activeTimer = 0f;
     private Vector2 _dashDirection = Vector2.UnitX;
@@ -57,22 +67,23 @@ public class DashSubWeapon : ISubWeapon
         _ghostSampleTimer = 0f;
         _ghosts.Clear();
 
-        Vector2 moveIntent = user.Body.Velocity;
-        if (moveIntent.LengthSquared() > 100f)
-        {
-            _dashDirection = MathHelper2D.SafeNormalize(moveIntent);
-        }
-        else if (direction.LengthSquared() > 0.01f)
+        // 优先严格朝向鼠标所在的世界坐标方向冲刺
+        if (direction.LengthSquared() > 0.001f)
         {
             _dashDirection = MathHelper2D.SafeNormalize(direction);
+        }
+        else if (user.Body.Velocity.LengthSquared() > 10f)
+        {
+            _dashDirection = MathHelper2D.SafeNormalize(user.Body.Velocity);
         }
         else
         {
             _dashDirection = Vector2.UnitX;
         }
 
-        // 爆发速度并激活免疫状态
+        // 爆发恒定速度突破重力与摩擦束缚，确保精准穿行 200px
         user.Body.Velocity = _dashDirection * DashSpeed;
+        user.Body.IsGrounded = false;
         user.IsInvulnerable = true;
         user.Squash.ApplyImpulse(-_dashDirection, 0.55f);
 
@@ -90,7 +101,7 @@ public class DashSubWeapon : ISubWeapon
         for (int i = _ghosts.Count - 1; i >= 0; i--)
         {
             var ghost = _ghosts[i];
-            ghost.Alpha -= dt * 4.2f;
+            ghost.Alpha -= dt * 4.8f;
             if (ghost.Alpha <= 0f)
             {
                 _ghosts.RemoveAt(i);
@@ -105,20 +116,27 @@ public class DashSubWeapon : ISubWeapon
         {
             _activeTimer -= dt;
 
-            // 采样残影
             if (_currentUser != null)
             {
+                // 冲刺期间锁定速度矢量，确保在 0.15s 内精准直贯 200px
+                if (_activeTimer > 0f)
+                {
+                    _currentUser.Body.Velocity = _dashDirection * DashSpeed;
+                }
+
+                // 采样残影
                 _ghostSampleTimer += dt;
-                if (_ghostSampleTimer >= 0.035f)
+                if (_ghostSampleTimer >= 0.025f)
                 {
                     _ghostSampleTimer = 0f;
                     SpawnGhost(_currentUser);
                 }
-            }
 
-            if (_activeTimer <= 0f && _currentUser != null)
-            {
-                _currentUser.IsInvulnerable = false;
+                if (_activeTimer <= 0f)
+                {
+                    _currentUser.IsInvulnerable = false;
+                    _currentUser.Body.Velocity = _dashDirection * 260f; // 结束时保留适度余速惯性
+                }
             }
         }
     }

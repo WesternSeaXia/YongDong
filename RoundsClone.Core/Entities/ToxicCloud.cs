@@ -9,9 +9,10 @@ namespace RoundsClone.Core.Entities;
 
 /// <summary>
 /// 毒云弥漫实体 (Toxic Cloud)。
-/// 职责边界：子弹命中留下的范围滞留毒雾（经典卡通积云形态），呈现平底隆顶、多峰并起的饱满蓬松云朵外观；
-/// 具备浓厚实体感（低透明度），拥有顶光亮面、浓郁云身与背阴暗腹三层体积深度；
-/// 渲染处于背景层，绝不遮蔽前景玩家与敌方角色；为踏入其中的单位施加减速与毒素腐蚀伤害。
+/// 100% 还原《ROUNDS》原版实机风格与动态流体循环动画：
+/// 1. 中心毒气不断喷涌：核心恒定气团镇守中核，外围交错气团从中心以正弦曲线迅速膨胀涌出；
+/// 2. 圈边毒气动态消散：气团在推进至约 50px 半径外边缘时按二次方曲线收缩湮灭，形成周而复始的内涌外散；
+/// 3. ROUNDS 经典纯净双色色阶（无黑色描边杂质）：下层深橄榄绿阴影 + 上层芥末荧光绿主体。
 /// </summary>
 public class ToxicCloud
 {
@@ -24,35 +25,49 @@ public class ToxicCloud
     public Actor Owner { get; }
     public bool IsExpired => Timer >= Duration;
 
-    private float _particleTimer = 0f;
     private float _damageTickTimer = 0f;
+    private float _sporeTimer = 0f;
 
-    /// <summary>
-    /// 蓬松积云气团叶片数据（构成积云特有的平底隆顶、多峰并起的经典云朵形态）。
-    /// </summary>
-    private readonly struct CloudLobe
+    // 核心气团：镇守云核，确保中心始终厚实致密、永不镂空
+    private readonly struct CorePuff
     {
-        public readonly Vector2 BaseOffset;     // 相对云中心的相对偏移
-        public readonly float RelativeRadius;   // 叶片相对基准半径的尺寸比例
-        public readonly float Phase;            // 呼吸起伏初始相位
-        public readonly float WobbleSpeed;      // 呼吸扰动频率
-        public readonly float WobbleAmp;        // 缓动位移幅度
-        public readonly float RadiusAmp;        // 尺寸微胀缩幅度
-        public readonly bool HasTopHighlight;   // 是否绘制顶部白绿高光蓬松峰
+        public readonly Vector2 Offset;
+        public readonly float RelativeRadius;
+        public readonly float PulseSpeed;
+        public readonly float Phase;
 
-        public CloudLobe(Vector2 baseOffset, float relativeRadius, float phase, float wobbleSpeed, float wobbleAmp, float radiusAmp, bool hasTopHighlight = false)
+        public CorePuff(Vector2 offset, float relativeRadius, float pulseSpeed, float phase)
         {
-            BaseOffset = baseOffset;
+            Offset = offset;
             RelativeRadius = relativeRadius;
+            PulseSpeed = pulseSpeed;
             Phase = phase;
-            WobbleSpeed = wobbleSpeed;
-            WobbleAmp = wobbleAmp;
-            RadiusAmp = radiusAmp;
-            HasTopHighlight = hasTopHighlight;
         }
     }
 
-    private readonly CloudLobe[] _lobes;
+    // 喷涌翻滚气团：从中心涌现膨胀，推进至边缘收缩消散
+    private readonly struct BillowPuff
+    {
+        public readonly float Angle;          // 喷涌主方向（弧度）
+        public readonly float MaxDist;        // 推进至边缘的最大距离
+        public readonly float BaseRadius;     // 最大膨胀半径
+        public readonly float CycleSpeed;     // 喷涌循环频率（次/秒）
+        public readonly float Phase;          // 相位偏移，确保各方向交错连续喷涌
+        public readonly float SwirlAmount;    // 翻滚微旋幅度
+
+        public BillowPuff(float angle, float maxDist, float baseRadius, float cycleSpeed, float phase, float swirlAmount)
+        {
+            Angle = angle;
+            MaxDist = maxDist;
+            BaseRadius = baseRadius;
+            CycleSpeed = cycleSpeed;
+            Phase = phase;
+            SwirlAmount = swirlAmount;
+        }
+    }
+
+    private readonly CorePuff[] _corePuffs;
+    private readonly BillowPuff[] _billowPuffs;
 
     public ToxicCloud(Vector2 position, Actor owner, float duration = 3.5f, float radius = DefaultRadius)
     {
@@ -61,53 +76,53 @@ public class ToxicCloud
         Duration = duration;
         Radius = radius;
 
-        // 构造全向饱满的 11 簇蓬松积云形态（360度精准覆盖 50px 半径减速伤害区，带有顶光高光与底腹阴影）
         var rand = Random.Shared;
-        _lobes = new CloudLobe[]
+
+        // 1. 3 朵致密核心气团，呈品字形分布在中心，轻微呼吸搏动
+        _corePuffs = new CorePuff[]
         {
-            // 1. 中央致密核心（填充中心，确保中间没有空洞）
-            new CloudLobe(Vector2.Zero, 0.62f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.2f, 2.5f, 0.04f, false),
-            new CloudLobe(new Vector2(-Radius * 0.16f, -Radius * 0.10f), 0.52f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.3f, 3.0f, 0.05f, false),
-            new CloudLobe(new Vector2(Radius * 0.16f, Radius * 0.10f), 0.52f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.1f, 3.0f, 0.05f, false),
-
-            // 2. 8 朵圆周环绕云瓣（分布在各个方向，确保 360 度各个角度都精准填满 50px 范围）
-            // 顶部隆起云峰（上方向，带有高光顶面）
-            new CloudLobe(new Vector2(0f, -Radius * 0.54f), 0.50f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.4f, 3.5f, 0.05f, true),
-            new CloudLobe(new Vector2(Radius * 0.38f, -Radius * 0.38f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.3f, 3.5f, 0.05f, true),
-            new CloudLobe(new Vector2(-Radius * 0.38f, -Radius * 0.38f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.5f, 3.5f, 0.05f, true),
-
-            // 左右舒展云翼
-            new CloudLobe(new Vector2(Radius * 0.54f, 0f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.2f, 3.5f, 0.05f, true),
-            new CloudLobe(new Vector2(-Radius * 0.54f, 0f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.6f, 3.5f, 0.05f, true),
-
-            // 底部云腹基座（下方向，背光暗腹）
-            new CloudLobe(new Vector2(0f, Radius * 0.54f), 0.50f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.3f, 3.0f, 0.05f, false),
-            new CloudLobe(new Vector2(Radius * 0.38f, Radius * 0.38f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.4f, 3.0f, 0.05f, false),
-            new CloudLobe(new Vector2(-Radius * 0.38f, Radius * 0.38f), 0.48f, (float)(rand.NextDouble() * MathHelper.TwoPi), 1.1f, 3.0f, 0.05f, false),
+            new CorePuff(new Vector2(0f, -Radius * 0.04f), Radius * 0.44f, 2.2f, 0f),
+            new CorePuff(new Vector2(-Radius * 0.12f, Radius * 0.08f), Radius * 0.38f, 2.6f, 1.8f),
+            new CorePuff(new Vector2(Radius * 0.12f, Radius * 0.07f), Radius * 0.39f, 2.4f, 3.4f)
         };
+
+        // 2. 10 朵交错相位向外喷涌气团，全方向覆盖
+        const int billowCount = 10;
+        _billowPuffs = new BillowPuff[billowCount];
+
+        for (int i = 0; i < billowCount; i++)
+        {
+            // 角度均匀分布并附带少量有机抖动
+            float baseAngle = (i / (float)billowCount) * MathHelper.TwoPi;
+            float angleJitter = ((float)rand.NextDouble() - 0.5f) * 0.25f;
+            float angle = baseAngle + angleJitter;
+
+            // 推进最大距离：0.60R ~ 0.74R（气泡外沿在展开后正好抵达约 50px 边缘）
+            float maxDist = Radius * (0.60f + (float)rand.NextDouble() * 0.14f);
+
+            // 最大饱满半径：0.34R ~ 0.44R (约 17px ~ 22px)
+            float baseRadius = Radius * (0.34f + (float)rand.NextDouble() * 0.10f);
+
+            // 循环频率：0.75Hz ~ 0.95Hz（约 1.05s ~ 1.33s 完成一次从中心涌出到边缘消散的完整循环）
+            float cycleSpeed = 0.75f + (float)rand.NextDouble() * 0.20f;
+
+            // 相位使用黄金分割率打散，确保不同方向的气泡不会同时膨胀或同时消散，呈现持续不断的涌动感
+            float phase = (i * 0.6180339887f + (float)rand.NextDouble() * 0.08f) % 1.0f;
+
+            // 左右微旋翻滚
+            float swirlAmount = ((float)rand.NextDouble() - 0.5f) * 0.26f;
+
+            _billowPuffs[i] = new BillowPuff(angle, maxDist, baseRadius, cycleSpeed, phase, swirlAmount);
+        }
     }
 
     public void Update(float dt, List<Actor> actors, ParticleSystem particles, ScreenShake shake)
     {
         if (IsExpired) return;
 
-        // 初始生成时的轻盈毒雾爆发
-        if (Timer == 0f)
-        {
-            for (int i = 0; i < 14; i++)
-            {
-                particles.EmitToxicCloudSpore(Position, Radius);
-            }
-        }
-
         Timer += dt;
-        _particleTimer += dt;
-        while (_particleTimer >= 0.045f)
-        {
-            _particleTimer -= 0.045f;
-            particles.EmitToxicCloudSpore(Position, Radius);
-        }
 
+        // 周期性跳伤害与减速判定
         _damageTickTimer += dt;
         bool shouldDealDamage = false;
         if (_damageTickTimer >= 0.25f)
@@ -124,7 +139,8 @@ public class ToxicCloud
             float distSq = Vector2.DistanceSquared(Position, actor.Body.Position);
             if (distSq <= radiusSq)
             {
-                // 持续减速 35%
+                // 持续减速 35% 并施加通用减速状态（非冰冻）
+                actor.ApplySlow(0.35f, 0.65f, isFrost: false);
                 actor.Body.Velocity *= MathF.Max(0.65f, 1f - 0.35f * dt * 4f);
 
                 // 每 0.25 秒跳一次腐蚀伤害（10 点/秒）
@@ -134,78 +150,122 @@ public class ToxicCloud
                 }
             }
         }
+
+        // 偶发向圈边释放微量毒素轻烟，辅佐圈边消散视觉感
+        _sporeTimer += dt;
+        if (_sporeTimer >= 0.14f)
+        {
+            _sporeTimer = 0f;
+            particles.EmitToxicCloudSpore(Position, Radius);
+        }
     }
 
     public void Draw(ShapeBatcher batcher, SpriteBatch spriteBatch)
     {
         if (IsExpired) return;
 
-        // 展开与消散时间曲线（初期 0.35s 快速蓬松绽开，尾期 0.8s 平滑消散）
-        float deployProgress = MathHelper.Clamp(Timer / 0.35f, 0f, 1f);
-        float deployScale = 1f - MathF.Pow(1f - deployProgress, 3f);
-        float fadeProgress = MathHelper.Clamp((Duration - Timer) / 0.80f, 0f, 1f);
+        // 1. ROUNDS 经典果冻弹力展开（前 0.16s 迅速弹起弹出）与收缩消散（最后 0.30s 平滑收缩）
+        float overallScale;
+        const float spawnTime = 0.16f;
+        const float despawnTime = 0.30f;
 
-        // 稍微透明一点点：基准透明度调整为 0.56（从原先 0.82 降至 0.56，更加通透轻盈，同时保持云朵形态）
-        float baseAlpha = deployProgress * fadeProgress * 0.56f;
-        if (baseAlpha <= 0.001f || deployScale <= 0.01f) return;
+        if (Timer < spawnTime)
+        {
+            float t = Timer / spawnTime;
+            overallScale = MathF.Sin(t * MathHelper.PiOver2 * 1.08f);
+        }
+        else if (Duration - Timer < despawnTime)
+        {
+            float t = MathHelper.Clamp((Duration - Timer) / despawnTime, 0f, 1f);
+            overallScale = t * t;
+        }
+        else
+        {
+            overallScale = 1.0f;
+        }
 
-        // 慢速呼吸起伏悬浮（模拟云团悬浮时的上下微漂动）
-        float floatY = MathF.Sin(Timer * 1.8f) * 3.5f * deployScale;
+        if (overallScale <= 0.001f) return;
+
+        // 整体微幅有机上下浮动
+        float floatY = MathF.Sin(Timer * 2.2f) * 1.5f * overallScale;
         Vector2 cloudCenter = Position + new Vector2(0f, floatY);
 
-        // 预先计算各叶片当前帧的动态中心与半径
-        Span<Vector2> lobePositions = stackalloc Vector2[_lobes.Length];
-        Span<float> lobeRadii = stackalloc float[_lobes.Length];
+        // 2. 颜色方案：100% 还原 ROUNDS 原版纯净双色色阶（无黑色描边）
+        Color shadowColor = new Color(90, 158, 26);  // 下层浓郁深橄榄绿阴影
+        Color bodyColor = new Color(158, 225, 42);   // 上层明亮鲜艳芥末荧光绿
 
-        for (int i = 0; i < _lobes.Length; i++)
+        int totalCircles = _corePuffs.Length + _billowPuffs.Length;
+        Span<Vector2> circlePositions = stackalloc Vector2[totalCircles];
+        Span<float> circleRadii = stackalloc float[totalCircles];
+        int validCount = 0;
+
+        // 3. 计算核心气团（呼吸脉动）
+        for (int i = 0; i < _corePuffs.Length; i++)
         {
-            ref readonly var lobe = ref _lobes[i];
-            float wobbleSin = MathF.Sin(Timer * lobe.WobbleSpeed + lobe.Phase);
-            float wobbleCos = MathF.Cos(Timer * lobe.WobbleSpeed * 0.85f + lobe.Phase);
-            Vector2 currentOffset = (lobe.BaseOffset + new Vector2(wobbleCos, wobbleSin) * lobe.WobbleAmp) * deployScale;
-            lobePositions[i] = cloudCenter + currentOffset;
-            lobeRadii[i] = Radius * lobe.RelativeRadius * deployScale * (1f + lobe.RadiusAmp * wobbleSin);
+            ref readonly var core = ref _corePuffs[i];
+            float pulse = 1.0f + MathF.Sin(Timer * core.PulseSpeed + core.Phase) * 0.07f;
+            circlePositions[validCount] = cloudCenter + core.Offset * overallScale;
+            circleRadii[validCount] = core.RelativeRadius * pulse * overallScale;
+            validCount++;
         }
 
-        // ==========================================
-        // 层级 1：云底深绿阴影层（营造经典卡通积云的背光腹部体积感）
-        // ==========================================
-        Color shadowColor = new Color(20, 68, 32) * (baseAlpha * 0.80f);
-        for (int i = 0; i < _lobes.Length; i++)
+        // 4. 计算喷涌翻滚气团（从中心喷涌膨胀 -> 推进至边缘二次方收缩消散）
+        for (int i = 0; i < _billowPuffs.Length; i++)
         {
-            Vector2 shadowPos = lobePositions[i] + new Vector2(0f, lobeRadii[i] * 0.16f);
-            batcher.DrawFilledCircle(spriteBatch, shadowPos, lobeRadii[i] * 1.02f, shadowColor);
-        }
+            ref readonly var puff = ref _billowPuffs[i];
+            float p = (Timer * puff.CycleSpeed + puff.Phase) % 1.0f;
 
-        // ==========================================
-        // 层级 2：云朵经典卡通轮廓描边（深毒绿外框，赋予云朵明确清晰的剪影边界）
-        // ==========================================
-        Color outlineColor = new Color(15, 52, 24) * (baseAlpha * 0.85f);
-        for (int i = 0; i < _lobes.Length; i++)
-        {
-            batcher.DrawCircleOutline(spriteBatch, lobePositions[i], lobeRadii[i], outlineColor, 2.5f);
-        }
+            // 曲线 A：位移向外推进（初期微加速喷涌）
+            float distT = MathF.Pow(p, 0.75f);
+            float currentDist = MathHelper.Lerp(4f, puff.MaxDist, distT) * overallScale;
 
-        // ==========================================
-        // 层级 3：云朵主体实体填充（浓郁饱满的毒素绿色，适度透视）
-        // ==========================================
-        Color bodyColor = Color.Lerp(ColorPalette.PoisonGreen, new Color(50, 195, 80), 0.30f) * (baseAlpha * 0.95f);
-        for (int i = 0; i < _lobes.Length; i++)
-        {
-            batcher.DrawFilledCircle(spriteBatch, lobePositions[i], lobeRadii[i], bodyColor);
-        }
+            // 微弱偏转产生流体翻滚感
+            float currentAngle = puff.Angle + MathF.Sin(p * MathHelper.TwoPi) * puff.SwirlAmount;
+            Vector2 puffPos = cloudCenter + new Vector2(MathF.Cos(currentAngle), MathF.Sin(currentAngle)) * currentDist;
 
-        // ==========================================
-        // 层级 4：云朵顶部蓬松亮面高光（向阳/向上翻卷的鹅黄柠檬绿亮顶）
-        // ==========================================
-        Color highlightColor = Color.Lerp(ColorPalette.PoisonGreen, new Color(195, 255, 140), 0.60f) * (baseAlpha * 0.82f);
-        for (int i = 0; i < _lobes.Length; i++)
-        {
-            if (_lobes[i].HasTopHighlight)
+            // 曲线 B：尺寸变化
+            // p < 0.28: 从中心迅速喷涌破壳膨胀（0 -> 1.0）
+            // 0.28 <= p <= 0.68: 保持饱满云团厚度向前推进
+            // p > 0.68: 到达约 50px 边缘时按二次方平滑收缩消解为 0（边缘消散感）
+            float sizeFactor;
+            if (p < 0.28f)
             {
-                Vector2 hlPos = lobePositions[i] + new Vector2(0f, -lobeRadii[i] * 0.28f);
-                batcher.DrawFilledCircle(spriteBatch, hlPos, lobeRadii[i] * 0.65f, highlightColor);
+                sizeFactor = MathF.Sin((p / 0.28f) * MathHelper.PiOver2);
             }
+            else if (p > 0.68f)
+            {
+                float fade = (1.0f - p) / 0.32f;
+                sizeFactor = fade * fade;
+            }
+            else
+            {
+                sizeFactor = 1.0f;
+            }
+
+            float puffRadius = puff.BaseRadius * sizeFactor * overallScale;
+            if (puffRadius > 0.5f)
+            {
+                circlePositions[validCount] = puffPos;
+                circleRadii[validCount] = puffRadius;
+                validCount++;
+            }
+        }
+
+        // ==========================================
+        // 层级 1：下层深绿阴影层（向下偏移，融合成整块有机底部阴影）
+        // ==========================================
+        Vector2 shadowShift = new(0f, 4.5f * overallScale);
+        for (int i = 0; i < validCount; i++)
+        {
+            batcher.DrawFilledCircle(spriteBatch, circlePositions[i] + shadowShift, circleRadii[i] * 1.02f, shadowColor);
+        }
+
+        // ==========================================
+        // 层级 2：上层明亮芥末黄绿主体（多圆自然融合为连续流体毒云）
+        // ==========================================
+        for (int i = 0; i < validCount; i++)
+        {
+            batcher.DrawFilledCircle(spriteBatch, circlePositions[i], circleRadii[i], bodyColor);
         }
     }
 }

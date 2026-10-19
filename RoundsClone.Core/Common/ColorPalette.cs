@@ -1,4 +1,4 @@
-﻿using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework;
 
 namespace RoundsClone.Core.Common;
 
@@ -24,7 +24,7 @@ public static class ColorPalette
     public static readonly Color DashTrail = new(255, 180, 50);
     public static readonly Color PoisonGreen = new(80, 255, 100);
     public static readonly Color ExplosiveOrange = new(255, 110, 30);
-    public static readonly Color FreezeCyan = new(120, 230, 255);
+    public static readonly Color FreezeCyan = new(180, 240, 255);
     public static readonly Color ElectricPurple = new(190, 80, 255);
 
     // 地图与环境色彩

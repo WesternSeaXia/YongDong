@@ -43,15 +43,67 @@ public class GameSettings
     public bool DynamicCameraEnabled { get; set; } = true;
 
     /// <summary>
+    /// 全局主音量 (0.0f ~ 1.0f)。
+    /// </summary>
+    public float MasterVolume { get; set; } = 0.85f;
+
+    /// <summary>
+    /// 背景音乐音量 (0.0f ~ 1.0f)。
+    /// </summary>
+    public float BgmVolume { get; set; } = 0.55f;
+
+    /// <summary>
+    /// 战斗音效音量 (0.0f ~ 1.0f)。
+    /// </summary>
+    public float SfxVolume { get; set; } = 0.85f;
+
+    /// <summary>
+    /// 背景音乐播放模式 (0: 顺序循环, 1: 随机播放, 2: 单曲循环)。
+    /// </summary>
+    public int BgmPlayMode { get; set; } = 0;
+
+    /// <summary>
+    /// 上次选中的背景音乐曲目索引。
+    /// </summary>
+    public int SelectedBgmIndex { get; set; } = 0;
+
+    /// <summary>
+    /// AI 难度级别 (0: 简单, 1: 普通, 2: 地狱)。
+    /// </summary>
+    public int AiDifficulty { get; set; } = 1;
+
+    /// <summary>
+    /// 键位控制方案预设 (0: WASD + 空格跳跃, 1: 方向键 + 上跳跃, 2: WASD + W跳跃)。
+    /// </summary>
+    public int KeybindPreset { get; set; } = 0;
+
+    /// <summary>
     /// 获取平台兼容的本地设置存储文件路径。
     /// </summary>
     private static string GetConfigFilePath()
     {
         string baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string appDir = Path.Combine(baseDir, "RoundsClone");
+        string appDir = Path.Combine(baseDir, "混乱枪豆人");
+        string legacyDir = Path.Combine(baseDir, "RoundsClone");
+
         if (!Directory.Exists(appDir))
         {
-            Directory.CreateDirectory(appDir);
+            if (Directory.Exists(legacyDir))
+            {
+                try
+                {
+                    Directory.Move(legacyDir, appDir);
+                }
+                catch
+                {
+                    // 若重命名失败则直接创建新目录
+                }
+            }
+
+            if (!Directory.Exists(appDir))
+            {
+                Directory.CreateDirectory(appDir);
+            }
         }
         return Path.Combine(appDir, "settings.json");
     }

@@ -6,6 +6,9 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>false</TieredCompilation>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Title>混乱枪豆人</Title>
+    <Product>混乱枪豆人</Product>
+    <Description>混乱枪豆人 (Chaos Gunner)</Description>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -32,6 +35,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Libs\opengl32.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Content\SFX\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

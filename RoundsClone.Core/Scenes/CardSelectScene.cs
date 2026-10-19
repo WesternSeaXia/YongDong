@@ -19,6 +19,7 @@ public class CardSelectScene : IScene
     private readonly bool _isForPlayer;
     private List<ICardPlugin> _draftedCards = new();
     private int _hoveredCardIndex = -1;
+    private int _lastHoveredCardIndex = -1;
 
     public CardSelectScene(SceneManager manager, Action exitAction, bool isForPlayer = true)
     {
@@ -31,6 +32,7 @@ public class CardSelectScene : IScene
     {
         _draftedCards = CardRegistry.DraftCards(3);
         _hoveredCardIndex = -1;
+        _lastHoveredCardIndex = -1;
     }
 
     public void Update(float dt)
@@ -46,6 +48,7 @@ public class CardSelectScene : IScene
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
         int startY = mobile ? 195 : 260;
 
+        int prevHover = _lastHoveredCardIndex;
         _hoveredCardIndex = -1;
 
         for (int i = 0; i < _draftedCards.Count; i++)
@@ -56,6 +59,7 @@ public class CardSelectScene : IScene
                 _hoveredCardIndex = i;
                 if (click)
                 {
+                    _manager.Audio.PlayCardPick();
                     // 装备所选卡牌
                     var chosen = _draftedCards[i];
                     if (_isForPlayer)
@@ -73,6 +77,12 @@ public class CardSelectScene : IScene
                 }
             }
         }
+
+        if (_hoveredCardIndex != -1 && _hoveredCardIndex != prevHover)
+        {
+            _manager.Audio.PlayUiHover();
+        }
+        _lastHoveredCardIndex = _hoveredCardIndex;
     }
 
     public void Draw(SpriteBatch spriteBatch)

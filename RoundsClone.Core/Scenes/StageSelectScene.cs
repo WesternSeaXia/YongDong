@@ -18,6 +18,7 @@ public class StageSelectScene : IScene
     private readonly Action _exitAction;
     private List<MapData> _draftedMaps = new();
     private int _hoveredCardIndex = -1;
+    private int _lastHoveredCardIndex = -1;
 
     public StageSelectScene(SceneManager manager, Action exitAction)
     {
@@ -30,6 +31,7 @@ public class StageSelectScene : IScene
         // 随机草拟 3 张不同竞技场卡牌
         _draftedMaps = MapRegistry.DraftMaps(3);
         _hoveredCardIndex = -1;
+        _lastHoveredCardIndex = -1;
     }
 
     public void Update(float dt)
@@ -46,6 +48,7 @@ public class StageSelectScene : IScene
         int startX = (VirtualViewport.VirtualWidth - totalW) / 2;
         int startY = mobile ? 210 : 300;
 
+        int prevHover = _lastHoveredCardIndex;
         _hoveredCardIndex = -1;
 
         for (int i = 0; i < _draftedMaps.Count; i++)
@@ -56,12 +59,19 @@ public class StageSelectScene : IScene
                 _hoveredCardIndex = i;
                 if (click)
                 {
+                    _manager.Audio.PlayUiClick();
                     _manager.CurrentMap = _draftedMaps[i];
                     _manager.ChangeScene(new BattleScene(_manager, _exitAction));
                     break;
                 }
             }
         }
+
+        if (_hoveredCardIndex != -1 && _hoveredCardIndex != prevHover)
+        {
+            _manager.Audio.PlayUiHover();
+        }
+        _lastHoveredCardIndex = _hoveredCardIndex;
     }
 
     public void Draw(SpriteBatch spriteBatch)
